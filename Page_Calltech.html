@@ -43,11 +43,33 @@
         </div>
     </section>
 
-    <!-- KPIs - Segunda Fileira (NOVA) -->
+    <!-- KPIs - Segunda Fileira -->
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <h4 class="text-slate-500 font-semibold">Valor Retido no Atendimento</h4>
             <p id="kpi-retention-value" class="text-4xl font-bold text-slate-800 mt-2">R$ 0,00</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm flex flex-col">
+            <h4 class="text-slate-500 font-semibold mb-2">Chamados com NPS</h4>
+            <div class="flex flex-grow items-center gap-6">
+                <div class="flex-shrink-0">
+                    <p id="kpi-nps-total" class="text-6xl font-bold text-slate-800">0</p>
+                </div>
+                <div class="flex-grow border-l border-slate-200 pl-6 space-y-2 text-sm">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center"><span class="h-2.5 w-2.5 rounded-full bg-emerald-500 mr-2"></span>Promotores</div>
+                        <strong id="kpi-nps-promoters" class="font-bold text-slate-800">0</strong>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center"><span class="h-2.5 w-2.5 rounded-full bg-amber-500 mr-2"></span>Neutros</div>
+                        <strong id="kpi-nps-neutrals" class="font-bold text-slate-800">0</strong>
+                    </div>
+                    <div class="flex justify-between items-center">
+                       <div class="flex items-center"><span class="h-2.5 w-2.5 rounded-full bg-red-500 mr-2"></span>Detratores</div>
+                        <strong id="kpi-nps-detractors" class="font-bold text-slate-800">0</strong>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -55,7 +77,7 @@
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <!-- Card de Efetividade da Equipa -->
         <div class="bg-white p-6 rounded-xl shadow-sm">
-            <h3 class="text-lg font-semibold text-slate-800 mb-4">Efetividade da Equipa (Taxa de Resolução)</h3>
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">Efetividade da Equipe (Taxa de Resolução)</h3>
             <div id="resolution-rate-container" class="space-y-4">
                 <!-- Dia 0 -->
                 <div class="resolution-item">
@@ -113,7 +135,7 @@
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <div class="flex justify-between items-start mb-4">
                 <h3 class="text-lg font-semibold text-slate-800">Fluxo Diário de Chamados</h3>
-                <!-- NOVO FILTRO DE DATA PARA O GRÁFICO -->
+                <!-- NOVO FILTRO DE DATA PARA O GRÁFIICO -->
                 <div class="date-dropdown relative">
                     <button id="flow-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-3 py-1 rounded-md flex items-center gap-2 text-sm">
                         <span id="flow-date-range-display">Últimos 7 dias</span>
@@ -141,9 +163,13 @@
     <div class="bg-white p-6 rounded-xl shadow-sm">
         <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
             <h3 class="text-lg font-semibold text-slate-800">Detalhes dos Chamados</h3>
-            <div class="flex items-center gap-4">
+            <div class="flex flex-wrap items-center gap-4">
                  <input type="text" id="filter-chamado-input" placeholder="Filtrar por Cód. Chamado..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-48">
                  <input type="text" id="filter-pedido-input" placeholder="Filtrar por Pedido..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-48">
+                 <div class="flex items-center">
+                    <input type="checkbox" id="filter-nps-toggle" class="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500">
+                    <label for="filter-nps-toggle" class="ml-2 text-sm text-slate-600">Com NPS respondido</label>
+                 </div>
             </div>
         </div>
         <div class="overflow-x-auto">
