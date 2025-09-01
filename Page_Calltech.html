@@ -47,7 +47,93 @@
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <h4 class="text-slate-500 font-semibold">Valor Retido no Atendimento</h4>
-            <p id="kpi-retention-value" class="text-4xl font-bold text-purple-600 mt-2">R$ 0,00</p>
+            <p id="kpi-retention-value" class="text-4xl font-bold text-slate-800 mt-2">R$ 0,00</p>
+        </div>
+    </section>
+
+    <!-- Linha para Gráficos de Análise -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <!-- Card de Efetividade da Equipa -->
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">Efetividade da Equipa (Taxa de Resolução)</h3>
+            <div id="resolution-rate-container" class="space-y-4">
+                <!-- Dia 0 -->
+                <div class="resolution-item">
+                    <div class="flex justify-between items-center text-sm mb-1">
+                        <span class="font-medium text-slate-600">Resolvido no mesmo dia (D+0)</span>
+                        <span id="rate-day0-text" class="font-bold text-slate-800">0% (0)</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2.5">
+                        <div id="rate-day0-bar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+                <!-- Dia 1 -->
+                <div class="resolution-item">
+                    <div class="flex justify-between items-center text-sm mb-1">
+                        <span class="font-medium text-slate-600">Resolvido em 1 dia (D+1)</span>
+                        <span id="rate-day1-text" class="font-bold text-slate-800">0% (0)</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2.5">
+                        <div id="rate-day1-bar" class="bg-sky-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+                <!-- Dia 2 -->
+                <div class="resolution-item">
+                    <div class="flex justify-between items-center text-sm mb-1">
+                        <span class="font-medium text-slate-600">Resolvido em 2 dias (D+2)</span>
+                        <span id="rate-day2-text" class="font-bold text-slate-800">0% (0)</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2.5">
+                        <div id="rate-day2-bar" class="bg-amber-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+                <!-- Dia 3 -->
+                <div class="resolution-item">
+                    <div class="flex justify-between items-center text-sm mb-1">
+                        <span class="font-medium text-slate-600">Resolvido em 3 dias (D+3)</span>
+                        <span id="rate-day3-text" class="font-bold text-slate-800">0% (0)</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2.5">
+                        <div id="rate-day3-bar" class="bg-orange-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+                <!-- Dia 4+ -->
+                <div class="resolution-item">
+                    <div class="flex justify-between items-center text-sm mb-1">
+                        <span class="font-medium text-slate-600">Resolvido em 4 dias ou mais (D+4)</span>
+                        <span id="rate-day4plus-text" class="font-bold text-slate-800">0% (0)</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2.5">
+                        <div id="rate-day4plus-bar" class="bg-red-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Card do Gráfico de Fluxo Diário -->
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <div class="flex justify-between items-start mb-4">
+                <h3 class="text-lg font-semibold text-slate-800">Fluxo Diário de Chamados</h3>
+                <!-- NOVO FILTRO DE DATA PARA O GRÁFICO -->
+                <div class="date-dropdown relative">
+                    <button id="flow-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-3 py-1 rounded-md flex items-center gap-2 text-sm">
+                        <span id="flow-date-range-display">Últimos 7 dias</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+                    </button>
+                    <div id="flow-date-range-popup" class="date-popup">
+                        <div class="date-inputs">
+                            <div><label for="flow-startDate">Data Início</label><input type="date" id="flow-startDate"></div>
+                            <div><label for="flow-endDate">Data Fim</label><input type="date" id="flow-endDate"></div>
+                        </div>
+                        <div class="popup-actions">
+                            <button id="flow-cancelButton" class="cancel-button">Cancelar</button>
+                            <button id="flow-applyButton" class="apply-button">Aplicar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="daily_flow_chart" style="width: 100%; height: 280px;">
+                <!-- O gráfico do Google Charts será renderizado aqui -->
+            </div>
         </div>
     </section>
 
@@ -105,3 +191,4 @@
         </div>
     </div>
 </div>
+
