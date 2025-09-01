@@ -1,0 +1,284 @@
+<script>
+// ==================================================================
+// === LÓGICA DA PÁGINA CALLTECH E MODAL DE CLIENTES ================
+// ==================================================================
+let allCalltechTickets = [];
+let filteredCalltechTickets = [];
+let calltechCurrentPage = 1;
+const calltechRowsPerPage = 50;
+let filterTimeout;
+
+function initializeCalltechPage() {
+    try {
+        // Configuração do filtro de data
+        const today = new Date();
+        const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        document.getElementById('ct-endDate').value = today.toISOString().split('T')[0];
+        document.getElementById('ct-startDate').value = firstDayMonth.toISOString().split('T')[0];
+        
+        document.getElementById('ct-applyButton').addEventListener('click', applyCalltechDateFilter);
+        document.getElementById('ct-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'ct-date-range-popup'));
+        document.getElementById('ct-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'ct-date-range-popup'));
+        updateCalltechDateRangeDisplay();
+        
+        // Paginação da tabela
+        document.getElementById('ct-prev-page').addEventListener('click', () => {
+            if(calltechCurrentPage > 1) { calltechCurrentPage--; displayCalltechPage(); }
+        });
+        document.getElementById('ct-next-page').addEventListener('click', () => {
+            if(calltechCurrentPage * calltechRowsPerPage < filteredCalltechTickets.length) { calltechCurrentPage++; displayCalltechPage(); }
+        });
+        
+        // Filtros da tabela
+        document.getElementById('filter-chamado-input').addEventListener('input', () => {
+            clearTimeout(filterTimeout);
+            filterTimeout = setTimeout(filterCalltechTable, 300);
+        });
+         document.getElementById('filter-pedido-input').addEventListener('input', () => {
+            clearTimeout(filterTimeout);
+            filterTimeout = setTimeout(filterCalltechTable, 300);
+        });
+
+        // Busca os dados iniciais
+        fetchCalltechData();
+
+        // Lógica do modal de histórico do cliente
+        document.getElementById('close-clientes-modal-btn').addEventListener('click', closeClientesModal);
+        document.getElementById('clientes-modal').addEventListener('click', closeClientesModal);
+
+    } catch (error) {
+        displayError("Erro ao inicializar o Dashboard de Calltech", error);
+    }
+}
+
+function updateCalltechDateRangeDisplay() {
+    const startDate = new Date(document.getElementById('ct-startDate').value.replace(/-/g, '/'));
+    const endDate = new Date(document.getElementById('ct-endDate').value.replace(/-/g, '/'));
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    const display = `${startDate.toLocaleDateString('pt-BR', options)} - ${endDate.toLocaleDateString('pt-BR', options)}`;
+    document.getElementById('ct-date-range-display').textContent = display;
+}
+
+function applyCalltechDateFilter() {
+    document.getElementById('ct-date-range-popup').classList.remove('show');
+    updateCalltechDateRangeDisplay();
+    pageCache.data.calltech = null; // Invalida o cache
+    fetchCalltechData();
+}
+
+function fetchCalltechData() {
+    if (pageCache.data.calltech) {
+        onCalltechDataReceived(pageCache.data.calltech);
+        return;
+    }
+
+    const loader = document.getElementById('calltech-loader');
+    const content = document.getElementById('calltech-content');
+    if(loader) loader.style.display = 'block';
+    if(content) content.style.visibility = 'hidden';
+
+    const dateRange = {
+        start: document.getElementById('ct-startDate').value,
+        end: document.getElementById('ct-endDate').value
+    };
+    google.script.run
+        .withSuccessHandler(onCalltechDataReceived)
+        .withFailureHandler(error => displayError('Falha ao buscar dados de Calltech', error))
+        .getCalltechData(dateRange);
+}
+
+function onCalltechDataReceived(data) {
+    pageCache.data.calltech = data;
+
+    const loader = document.getElementById('calltech-loader');
+    const content = document.getElementById('calltech-content');
+    if(loader) loader.style.display = 'none';
+    if(content) content.style.visibility = 'visible';
+
+    // Atualiza os KPIs
+    document.getElementById('kpi-total').textContent = data.kpis.total || 0;
+    document.getElementById('kpi-open').textContent = data.kpis.open || 0;
+    document.getElementById('kpi-closed').textContent = data.kpis.closed || 0;
+    document.getElementById('kpi-avg-time').textContent = `${data.kpis.avgTime || 0} dias`;
+    document.getElementById('kpi-retention-value').textContent = (data.kpis.retentionValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    allCalltechTickets = data.tickets || [];
+    filterCalltechTable(); // Aplica filtros e renderiza a tabela
+}
+
+function filterCalltechTable() {
+    const chamadoFilter = document.getElementById('filter-chamado-input').value.toLowerCase();
+    const pedidoFilter = document.getElementById('filter-pedido-input').value.toLowerCase();
+
+    filteredCalltechTickets = allCalltechTickets.filter(ticket => {
+        const chamadoMatch = (ticket.chamadoId || '').toLowerCase().includes(chamadoFilter);
+        const pedidoMatch = (ticket.pedidoId || '').toLowerCase().includes(pedidoFilter);
+        return chamadoMatch && pedidoMatch;
+    });
+    calltechCurrentPage = 1;
+    displayCalltechPage();
+}
+
+function displayCalltechPage() {
+    const tbody = document.getElementById('calltech-table-body');
+    const pageInfo = document.getElementById('ct-page-info');
+    const prevBtn = document.getElementById('ct-prev-page');
+    const nextBtn = document.getElementById('ct-next-page');
+
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (filteredCalltechTickets.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum chamado encontrado para os filtros aplicados.</td></tr>';
+        pageInfo.textContent = '0 de 0';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+    }
+
+    const startIndex = (calltechCurrentPage - 1) * calltechRowsPerPage;
+    const endIndex = startIndex + calltechRowsPerPage;
+    const pageTickets = filteredCalltechTickets.slice(startIndex, endIndex);
+
+    pageTickets.forEach(ticket => {
+        const isClosed = (ticket.status || '').toLowerCase().includes('finalizado') || (ticket.status || '').toLowerCase().includes('resolvido');
+        const statusClass = isClosed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
+        const clienteHtml = ticket.email 
+            ? `<a href="#" class="font-semibold hover:text-orange-500" onclick="event.preventDefault(); openClientHistory('${ticket.email}')">${ticket.cliente}</a>` 
+            : ticket.cliente;
+
+        const tr = `
+            <tr class="border-b hover:bg-orange-50 transition-colors">
+                <td class="p-3">${ticket.chamadoId}</td>
+                <td class="p-3">${ticket.pedidoId}</td>
+                <td class="p-3">${clienteHtml}</td>
+                <td class="p-3"><span class="px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">${ticket.status}</span></td>
+                <td class="p-3">${ticket.dataAbertura}</td>
+                <td class="p-3">${ticket.dataFinalizacao}</td>
+            </tr>
+        `;
+        tbody.innerHTML += tr;
+    });
+    
+    pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, filteredCalltechTickets.length)} de ${filteredCalltechTickets.length}`;
+    prevBtn.disabled = calltechCurrentPage === 1;
+    nextBtn.disabled = endIndex >= filteredCalltechTickets.length;
+}
+
+// --- Funções do Modal de Histórico de Cliente ---
+function openClientesModal() {
+    const modal = document.getElementById('clientes-modal');
+    const modalContent = document.getElementById('clientes-modal-content');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalContent.classList.remove('scale-95');
+    }, 10);
+}
+
+function closeClientesModal() {
+    const modal = document.getElementById('clientes-modal');
+    const modalContent = document.getElementById('clientes-modal-content');
+    modal.classList.add('opacity-0');
+    modalContent.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 300);
+}
+
+function openClientHistory(email) {
+    if (!email) {
+        alert('E-mail do cliente não encontrado.');
+        return;
+    }
+    openClientesModal();
+    document.getElementById('clientes-detail-loader').style.display = 'block';
+    document.getElementById('clientes-detail-content').innerHTML = '';
+    
+    google.script.run
+        .withSuccessHandler(onClientHistoryReceived)
+        .withFailureHandler(error => displayError('Falha ao buscar histórico do cliente', error))
+        .getCustomerData({ type: 'search', value: email });
+}
+
+function onClientHistoryReceived(data) {
+    document.getElementById('clientes-detail-loader').style.display = 'none';
+    if(data.error){
+        alert(data.error);
+        return;
+    }
+    
+    const customer = data[0]; // A busca por email deve retornar apenas um cliente
+    if (!customer) {
+        document.getElementById('clientes-detail-content').innerHTML = '<p class="text-center text-slate-500">Nenhum histórico encontrado para este cliente.</p>';
+        return;
+    }
+
+    const detailContainer = document.getElementById('clientes-detail-content');
+    const historyHtml = customer.history.map(item => createHistoryItem(item)).join('');
+    
+    detailContainer.innerHTML = `
+        <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+            <h3 class="font-bold text-lg text-slate-800">${customer.name}</h3>
+            <p class="text-sm text-slate-500">${customer.email}</p>
+        </div>
+        <div class="space-y-4">
+            ${historyHtml || '<div class="bg-white rounded-xl shadow-sm p-4"><p class="text-sm text-slate-400">Nenhum registro de histórico encontrado.</p></div>'}
+        </div>
+    `;
+}
+
+function createHistoryItem(item){
+    const formattedDate = item.date ? new Date(item.date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'}) : 'Data Inválida';
+    const iconNPS = `<div class="bg-blue-100 rounded-full p-2"><svg class="w-6 h-6 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.17 48.17 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" /></svg></div>`;
+    const iconChamado = `<div class="bg-red-100 rounded-full p-2"><svg class="w-6 h-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" /></svg></div>`;
+    const iconAtendimento = `<div class="bg-green-100 rounded-full p-2"><svg class="w-6 h-6 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193l-3.72.372a11.945 11.945 0 01-1.066 2.277a2.25 2.25 0 01-3.916 0l-1.066-2.277-3.72-.372A2.25 2.25 0 013 15.082V10.608c0-.97.616-1.813 1.5-2.097m14.25-1.122L11.25 4.5l-7.5 4.5v8.25c0 .633.513 1.125 1.125 1.125h16.5c.612 0 1.125-.492 1.125-1.125v-8.25z" /></svg></div>`;
+    
+    let contentHtml = '';
+
+    switch(item.type){
+        case 'NPS':
+            const classificationClasses = { promotor: 'bg-emerald-100 text-emerald-800', neutro: 'bg-amber-100 text-amber-800', detrator: 'bg-red-100 text-red-800' };
+            const badgeClass = classificationClasses[item.classificacao?.toLowerCase()] || 'bg-slate-100 text-slate-800';
+            contentHtml = `
+                <div class="history-item-grid bg-white p-4 rounded-xl shadow-sm">
+                   <div class="history-item-icon">${iconNPS}</div>
+                   <div class="history-item-content">
+                       <p class="font-semibold text-slate-700">Avaliação NPS <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+                       <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} - <span class="px-2 py-0.5 text-xs font-medium rounded-full capitalize ${badgeClass}">${item.classificacao}</span></p>
+                       ${item.comentario ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">"${item.comentario}"</p>` : ''}
+                   </div>
+                </div>`;
+            break;
+        case 'Chamado':
+             const isClosed = item.status?.toLowerCase().includes('finalizado') || item.status?.toLowerCase().includes('resolvido');
+             const statusClass = isClosed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
+            contentHtml = `
+                <div class="history-item-grid bg-white p-4 rounded-xl shadow-sm">
+                   <div class="history-item-icon">${iconChamado}</div>
+                   <div class="history-item-content">
+                       <p class="font-semibold text-slate-700">Abertura de Chamado <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+                       <p class="text-sm text-slate-600">Chamado: ${item.chamadoId} | Pedido: ${item.pedidoId || 'N/A'}</p>
+                       <p class="text-sm text-slate-600">Status: <span class="px-2 py-0.5 text-xs font-medium rounded-full ${statusClass}">${item.status}</span> ${item.dataFinalizacao ? `- Finalizado em: ${item.dataFinalizacao.split(' ')[0]}` : ''}</p>
+                   </div>
+                </div>`;
+            break;
+        case 'Atendimento':
+            contentHtml = `
+                <div class="history-item-grid bg-white p-4 rounded-xl shadow-sm">
+                   <div class="history-item-icon">${iconAtendimento}</div>
+                   <div class="history-item-content">
+                       <p class="font-semibold text-slate-700">Atendimento (Forms) <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+                       <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} | Motivo: <span class="font-medium">${item.resolucao || 'N/A'}</span></p>
+                       <p class="text-sm text-slate-600">Defeito: ${item.defeito || 'N/A'}</p>
+                       ${item.relato ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">Relato: "${item.relato}"</p>` : ''}
+                   </div>
+                </div>`;
+            break;
+    }
+    return contentHtml;
+}
+</script>
+
