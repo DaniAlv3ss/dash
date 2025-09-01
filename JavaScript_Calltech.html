@@ -10,7 +10,7 @@ let filterTimeout;
 
 function initializeCalltechPage() {
     try {
-        // Configuração do filtro de data
+        // Configuração do filtro de data principal
         const today = new Date();
         const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
         document.getElementById('ct-endDate').value = today.toISOString().split('T')[0];
@@ -19,7 +19,18 @@ function initializeCalltechPage() {
         document.getElementById('ct-applyButton').addEventListener('click', applyCalltechDateFilter);
         document.getElementById('ct-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'ct-date-range-popup'));
         document.getElementById('ct-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'ct-date-range-popup'));
-        updateCalltechDateRangeDisplay();
+        updateCalltechDateRangeDisplay('main');
+
+        // Configuração do filtro de data do gráfico de fluxo
+        const endDateFlow = new Date();
+        const startDateFlow = new Date();
+        startDateFlow.setDate(endDateFlow.getDate() - 6); // Últimos 7 dias por defeito
+        document.getElementById('flow-endDate').value = endDateFlow.toISOString().split('T')[0];
+        document.getElementById('flow-startDate').value = startDateFlow.toISOString().split('T')[0];
+        document.getElementById('flow-applyButton').addEventListener('click', applyFlowChartDateFilter);
+        document.getElementById('flow-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'flow-date-range-popup'));
+        document.getElementById('flow-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'flow-date-range-popup'));
+        updateCalltechDateRangeDisplay('flow');
         
         // Paginação da tabela
         document.getElementById('ct-prev-page').addEventListener('click', () => {
@@ -41,6 +52,7 @@ function initializeCalltechPage() {
 
         // Busca os dados iniciais
         fetchCalltechData();
+        fetchAndDrawFlowChart(); // Busca dados para o gráfico com o período padrão
 
         // Lógica do modal de histórico do cliente
         document.getElementById('close-clientes-modal-btn').addEventListener('click', closeClientesModal);
@@ -51,19 +63,30 @@ function initializeCalltechPage() {
     }
 }
 
-function updateCalltechDateRangeDisplay() {
-    const startDate = new Date(document.getElementById('ct-startDate').value.replace(/-/g, '/'));
-    const endDate = new Date(document.getElementById('ct-endDate').value.replace(/-/g, '/'));
+function updateCalltechDateRangeDisplay(type = 'main') {
+    const startId = type === 'main' ? 'ct-startDate' : 'flow-startDate';
+    const endId = type === 'main' ? 'ct-endDate' : 'flow-endDate';
+    const displayId = type === 'main' ? 'ct-date-range-display' : 'flow-date-range-display';
+    
+    const startDate = new Date(document.getElementById(startId).value.replace(/-/g, '/'));
+    const endDate = new Date(document.getElementById(endId).value.replace(/-/g, '/'));
     const options = { day: '2-digit', month: 'short', year: 'numeric' };
     const display = `${startDate.toLocaleDateString('pt-BR', options)} - ${endDate.toLocaleDateString('pt-BR', options)}`;
-    document.getElementById('ct-date-range-display').textContent = display;
+    document.getElementById(displayId).textContent = display;
 }
 
 function applyCalltechDateFilter() {
     document.getElementById('ct-date-range-popup').classList.remove('show');
-    updateCalltechDateRangeDisplay();
+    updateCalltechDateRangeDisplay('main');
     pageCache.data.calltech = null; // Invalida o cache
     fetchCalltechData();
+}
+
+// NOVA FUNÇÃO para aplicar o filtro do gráfico de fluxo
+function applyFlowChartDateFilter() {
+    document.getElementById('flow-date-range-popup').classList.remove('show');
+    updateCalltechDateRangeDisplay('flow');
+    fetchAndDrawFlowChart();
 }
 
 function fetchCalltechData() {
@@ -87,6 +110,30 @@ function fetchCalltechData() {
         .getCalltechData(dateRange);
 }
 
+// NOVA FUNÇÃO para buscar e desenhar o gráfico de fluxo
+function fetchAndDrawFlowChart() {
+    const chartContainer = document.getElementById('daily_flow_chart');
+    if (chartContainer) {
+        chartContainer.innerHTML = '<p class="text-center text-slate-500 pt-10">Carregando gráfico...</p>';
+    }
+
+    const dateRange = {
+        start: document.getElementById('flow-startDate').value,
+        end: document.getElementById('flow-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(drawDailyFlowChart)
+        .withFailureHandler(error => {
+             if (chartContainer) {
+                chartContainer.innerHTML = '<p class="text-center text-red-500 pt-10">Falha ao carregar o gráfico.</p>';
+             }
+             console.error("Falha ao buscar dados do gráfico:", error);
+        })
+        .getDailyFlowChartData(dateRange);
+}
+
+
 function onCalltechDataReceived(data) {
     pageCache.data.calltech = data;
 
@@ -102,9 +149,62 @@ function onCalltechDataReceived(data) {
     document.getElementById('kpi-avg-time').textContent = `${data.kpis.avgTime || 0} dias`;
     document.getElementById('kpi-retention-value').textContent = (data.kpis.retentionValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+    if (data.resolutionRate) {
+        updateResolutionRateCard(data.resolutionRate);
+    }
+
     allCalltechTickets = data.tickets || [];
-    filterCalltechTable(); // Aplica filtros e renderiza a tabela
+    filterCalltechTable(); 
 }
+
+function updateResolutionRateCard(resolutionData) {
+    const categories = ['day0', 'day1', 'day2', 'day3', 'day4plus'];
+    categories.forEach(cat => {
+        const rateData = resolutionData[cat] || { percentage: 0, count: 0 };
+        const textElement = document.getElementById(`rate-${cat}-text`);
+        const barElement = document.getElementById(`rate-${cat}-bar`);
+
+        if (textElement) {
+            textElement.textContent = `${rateData.percentage.toFixed(1)}% (${rateData.count})`;
+        }
+        if (barElement) {
+            barElement.style.width = `${rateData.percentage}%`;
+        }
+    });
+}
+
+function drawDailyFlowChart(chartData) {
+    const chartContainer = document.getElementById('daily_flow_chart');
+    if (!chartContainer) return;
+
+    if (!chartData || chartData.length <= 1) {
+        chartContainer.innerHTML = '<p class="text-center text-slate-500 pt-10">Não há dados de fluxo diário para o período.</p>';
+        return;
+    }
+
+    const data = google.visualization.arrayToDataTable(chartData);
+
+    const options = {
+        legend: { position: 'top', alignment: 'end' },
+        hAxis: { 
+            title: 'Dia', 
+            textStyle: { fontSize: 11 } 
+        },
+        vAxis: { 
+            title: 'Nº de Chamados', 
+            minValue: 0,
+            gridlines: { color: '#f1f5f9' }
+        },
+        // Cores da marca KaBuM!
+        colors: ['#ff6000', '#00529e'], // Laranja KaBuM! para Abertos, Azul KaBuM! para Fechados
+        chartArea: { left: 40, top: 40, width: '85%', height: '70%' },
+        bar: { groupWidth: '60%' } // Reduz a largura para aumentar o espaçamento entre os dias
+    };
+
+    const chart = new google.visualization.ColumnChart(chartContainer);
+    chart.draw(data, options);
+}
+
 
 function filterCalltechTable() {
     const chamadoFilter = document.getElementById('filter-chamado-input').value.toLowerCase();
