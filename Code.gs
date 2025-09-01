@@ -62,7 +62,8 @@ const INDICES_CALLTECH = {
  * Função principal que serve o "casco" da aplicação (menu e área de conteúdo).
  */
 function doGet(e) {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  return HtmlService.createTemplateFromFile('Index')
+    .evaluate()
     .setTitle('Dashboard KaBuM! - Monte o Seu PC')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -75,6 +76,13 @@ function getPageHtml(pageName) {
     return HtmlService.createHtmlOutputFromFile('Page_' + pageName).getContent();
   }
   throw new Error('Página não encontrada.');
+}
+
+/**
+ * Permite a inclusão de arquivos HTML (usados para os scripts JS) dentro de outro template HTML.
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 
