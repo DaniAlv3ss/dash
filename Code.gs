@@ -258,33 +258,32 @@ function getCalltechData(dateRange) {
   try {
     const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
     const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
-    const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO); // Get the "Forms" sheet
+    const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO); 
 
     if (!abaManager || !abaAtendimento) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
 
-    // --- Process Pedidos Manager Data ---
     const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
 
+    // --- Processamento para KPIs e Tabela ---
     let openTickets = 0;
     let closedTickets = 0;
     let totalResolutionTime = 0;
     let resolvedTicketsCount = 0;
+    const resolutionCounts = { day0: 0, day1: 0, day2: 0, day3: 0, day4plus: 0 };
     const tickets = [];
 
     allManagerData.forEach((row, index) => {
       const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
       const chamadoId = row[INDICES_CALLTECH.CHAMADO_ID];
 
-      if (!chamadoId || !openDateStr) {
-        return; 
-      }
+      if (!chamadoId || !openDateStr) return; 
 
       try {
         const dateParts = openDateStr.split(' ')[0].split('/');
-        if (dateParts.length !== 3) { throw new Error(`Formato de data inválido: ${openDateStr}`); }
+        if (dateParts.length !== 3) throw new Error(`Formato de data inválido: ${openDateStr}`);
         const [day, month, year] = dateParts;
         const openDate = new Date(year, month - 1, day);
-        if (isNaN(openDate.getTime())) { throw new Error(`Data inválida: ${openDateStr}`); }
+        if (isNaN(openDate.getTime())) throw new Error(`Data inválida: ${openDateStr}`);
         
         const openDateISO = openDate.toISOString().split('T')[0];
 
@@ -304,6 +303,12 @@ function getCalltechData(dateRange) {
                   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                   totalResolutionTime += diffDays;
                   resolvedTicketsCount++;
+                  
+                  if (diffDays === 0) resolutionCounts.day0++;
+                  else if (diffDays === 1) resolutionCounts.day1++;
+                  else if (diffDays === 2) resolutionCounts.day2++;
+                  else if (diffDays === 3) resolutionCounts.day3++;
+                  else if (diffDays >= 4) resolutionCounts.day4plus++;
                 }
               }
             }
@@ -325,10 +330,17 @@ function getCalltechData(dateRange) {
         Logger.log(`Erro ao processar linha ${index + 2} da planilha Manager: ${e.message}. Dados da linha: ${row.join(', ')}`);
       }
     });
-
+    
     const avgResolutionTime = resolvedTicketsCount > 0 ? (totalResolutionTime / resolvedTicketsCount).toFixed(1) : 0;
+    
+    const resolutionRate = {};
+    for (const day in resolutionCounts) {
+      const count = resolutionCounts[day];
+      const percentage = resolvedTicketsCount > 0 ? (count / resolvedTicketsCount) * 100 : 0;
+      resolutionRate[day] = { count: count, percentage: percentage };
+    }
 
-    // --- Process Forms Data for Retention KPI ---
+    // --- Processamento para KPI de Retenção ---
     const allAtendimentoData = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
     let retentionValue = 0;
     const statusRetido = "Retido no Atendimento (MSPC)";
@@ -368,12 +380,83 @@ function getCalltechData(dateRange) {
         open: openTickets,
         closed: closedTickets,
         avgTime: avgResolutionTime,
-        retentionValue: retentionValue // New KPI
-      }
+        retentionValue: retentionValue 
+      },
+      resolutionRate: resolutionRate
     };
   } catch (e) {
     Logger.log(`Erro fatal na função getCalltechData: ${e.stack}`);
-    return { tickets: [], kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0 } };
+    return { 
+      tickets: [], 
+      kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0 },
+      resolutionRate: {}
+    };
+  }
+}
+
+// NOVA FUNÇÃO PARA O GRÁFICO DE FLUXO
+function getDailyFlowChartData(dateRange) {
+  try {
+    const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
+    const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
+    if (!abaManager) throw new Error(`Aba ${NOME_ABA_MANAGER} não encontrada.`);
+    
+    const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
+    const dailyFlow = {};
+    const startDate = new Date(dateRange.start.replace(/-/g, '/'));
+    const endDate = new Date(dateRange.end.replace(/-/g, '/'));
+
+    // Initialize all days in the range to ensure empty days appear on the chart
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dayKey = d.toISOString().split('T')[0];
+        dailyFlow[dayKey] = { opened: 0, closed: 0 };
+    }
+
+    allManagerData.forEach((row, index) => {
+        try {
+            // Check opened tickets
+            const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
+            if (openDateStr) {
+                const openDateParts = openDateStr.split(' ')[0].split('/');
+                if (openDateParts.length === 3) {
+                    const openDate = new Date(openDateParts[2], openDateParts[1] - 1, openDateParts[0]);
+                    if (!isNaN(openDate.getTime())) {
+                        const openDateISO = openDate.toISOString().split('T')[0];
+                        if (dailyFlow.hasOwnProperty(openDateISO)) {
+                           dailyFlow[openDateISO].opened++;
+                        }
+                    }
+                }
+            }
+            // Check closed tickets
+            const closeDateStr = row[INDICES_CALLTECH.DATA_FINALIZACAO];
+            if (closeDateStr) {
+                const closeDateParts = closeDateStr.split(' ')[0].split('/');
+                if (closeDateParts.length === 3) {
+                    const closeDate = new Date(closeDateParts[2], closeDateParts[1] - 1, closeDateParts[0]);
+                    if (!isNaN(closeDate.getTime())) {
+                        const closeDateISO = closeDate.toISOString().split('T')[0];
+                        if (dailyFlow.hasOwnProperty(closeDateISO)) {
+                           dailyFlow[closeDateISO].closed++;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            Logger.log(`Error processing daily flow on row ${index + 2}: ${e.message}`);
+        }
+    });
+
+    const dailyFlowChartData = [['Dia', 'Abertos', 'Fechados']];
+    Object.keys(dailyFlow).sort().forEach(dayISO => {
+        const [year, month, day] = dayISO.split('-');
+        dailyFlowChartData.push([`${day}/${month}`, dailyFlow[dayISO].opened, dailyFlow[dayISO].closed]);
+    });
+    
+    return dailyFlowChartData;
+  } catch (e) {
+    Logger.log(`Erro fatal na função getDailyFlowChartData: ${e.stack}`);
+    return [['Dia', 'Abertos', 'Fechados']]; // Return headers on error
   }
 }
 
