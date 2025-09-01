@@ -1,0 +1,696 @@
+<script>
+    // ==================================================================
+    // === LÓGICA DA PÁGINA DE DASHBOARD NPS ============================
+    // ==================================================================
+    let evolutionChart, evolutionData, allRawResponses = [];
+    let currentEvolutionView = 'month';
+    let npsCurrentPage = 1;
+    const npsRowsPerPage = 100;
+    let activeMotiveFilter = { category: null, motive: null };
+    let activeClassificationFilters = [];
+    let allSupportReasons = [];
+    let currentSupportDetails = [];
+    let aiInsightsCache = {};
+
+    function initializeDashboardPage() {
+        google.charts.load('current', { 'packages': ['corechart', 'bar'] });
+        google.charts.setOnLoadCallback(() => {
+            const today = new Date();
+            const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            document.getElementById('endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('startDate').value = firstDayMonth.toISOString().split('T')[0];
+
+            document.getElementById('applyButton').addEventListener('click', applyMainDateFilter);
+            document.getElementById('date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'date-range-popup'));
+            document.getElementById('cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'date-range-popup'));
+            updateDateRangeDisplay('main');
+
+            const firstDayYear = new Date(today.getFullYear(), 0, 1);
+            document.getElementById('startDateEvolution').value = firstDayYear.toISOString().split('T')[0];
+            document.getElementById('endDateEvolution').value = today.toISOString().split('T')[0];
+            document.getElementById('applyButtonEvolution').addEventListener('click', applyEvolutionDateFilter);
+            document.getElementById('date-range-toggle-evolution').addEventListener('click', (e) => toggleDatePopup(e, 'date-range-popup-evolution'));
+            document.getElementById('cancelButtonEvolution').addEventListener('click', (e) => toggleDatePopup(e, 'date-range-popup-evolution'));
+            document.getElementById('backToMonthly').addEventListener('click', backToMonthlyView);
+            updateDateRangeDisplay('evolution');
+
+            document.getElementById('prev-page').addEventListener('click', () => { if (npsCurrentPage > 1) { npsCurrentPage--; displayResponsesPage(); } });
+            document.getElementById('next-page').addEventListener('click', () => {
+                if (npsCurrentPage * npsRowsPerPage < getFilteredResponses().length) { npsCurrentPage++; displayResponsesPage(); }
+            });
+
+            document.getElementById('clear-filter-btn').addEventListener('click', clearMotiveFilter);
+            document.getElementById('export-comments-btn').addEventListener('click', exportComments);
+            document.getElementById('export-support-btn').addEventListener('click', exportSupportDetails);
+
+            fetchMainData();
+            fetchEvolutionData('month');
+
+            window.addEventListener('click', function (event) {
+                document.querySelectorAll('.date-popup.show').forEach(popup => {
+                    const toggle = document.getElementById(popup.id.replace('popup', 'toggle'));
+                    if (toggle && !popup.contains(event.target) && !toggle.contains(event.target)) {
+                        popup.classList.remove('show');
+                    }
+                });
+            });
+        });
+    }
+
+    function updateDateRangeDisplay(type) {
+        const startId = type === 'main' ? 'startDate' : 'startDateEvolution';
+        const endId = type === 'main' ? 'endDate' : 'endDateEvolution';
+        const displayId = type === 'main' ? 'date-range-display' : 'date-range-display-evolution';
+        const startDate = new Date(document.getElementById(startId).value.replace(/-/g, '/'));
+        const endDate = new Date(document.getElementById(endId).value.replace(/-/g, '/'));
+        document.getElementById(displayId).textContent = `${startDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })} - ${endDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    }
+
+    function toggleDatePopup(event, popupId) {
+        event.stopPropagation();
+        document.getElementById(popupId).classList.toggle('show');
+    }
+
+    function applyMainDateFilter() {
+        document.getElementById('date-range-popup').classList.remove('show');
+        updateDateRangeDisplay('main');
+        pageCache.data.dashboard = null;
+        fetchMainData();
+    }
+
+    function applyEvolutionDateFilter() {
+        document.getElementById('date-range-popup-evolution').classList.remove('show');
+        updateDateRangeDisplay('evolution');
+        pageCache.data.evolution = null;
+        fetchEvolutionData(currentEvolutionView);
+    }
+
+    function fetchMainData() {
+        if (pageCache.data.dashboard) {
+            onMainDataReceived(pageCache.data.dashboard);
+            return;
+        }
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('dashboard-content').style.visibility = 'hidden';
+        clearMotiveFilter();
+        const dateRange = { start: document.getElementById('startDate').value, end: document.getElementById('endDate').value };
+        google.script.run.withSuccessHandler(onMainDataReceived).withFailureHandler(onFailure).getDashboardData(dateRange);
+    }
+
+    function fetchEvolutionData(groupBy, customRange = null) {
+        if (pageCache.data.evolution && !customRange) { // Only use cache for the main view
+            onEvolutionDataReceived(pageCache.data.evolution);
+            return;
+        }
+        document.getElementById('evolution_chart_loader').style.display = 'flex';
+        currentEvolutionView = groupBy;
+        const dateRange = customRange || { start: document.getElementById('startDateEvolution').value, end: document.getElementById('endDateEvolution').value };
+        google.script.run.withSuccessHandler(onEvolutionDataReceived).withFailureHandler(onFailure).getEvolutionChartData(dateRange, groupBy);
+    }
+
+    function onMainDataReceived(metrics) {
+        pageCache.data.dashboard = metrics;
+        aiInsightsCache = {};
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('dashboard-content').style.visibility = 'visible';
+        document.getElementById('registros-periodo').textContent = metrics.totalRespostas;
+        document.getElementById('nps-periodo-score').textContent = (metrics.nps || 0).toFixed(1);
+        document.getElementById('promoters-periodo').textContent = metrics.promotores;
+        document.getElementById('neutrals-periodo').textContent = metrics.neutros;
+        document.getElementById('detractors-periodo').textContent = metrics.detratores;
+        const trendUpIcon = document.getElementById('trend-up-icon');
+        const trendDownIcon = document.getElementById('trend-down-icon');
+        trendUpIcon.style.display = 'none';
+        trendDownIcon.style.display = 'none';
+        if (metrics.previousNps !== null) {
+            if (metrics.nps > metrics.previousNps) { trendUpIcon.style.display = 'block'; }
+            else if (metrics.nps < metrics.previousNps) { trendDownIcon.style.display = 'block'; }
+        }
+        document.getElementById('registros-acumulado').textContent = metrics.totalRespostasAcumulado;
+        createArcGauge('gauge-acumulado', metrics.npsAcumulado);
+        document.getElementById('registros-meta').textContent = metrics.totalRespostasMeta;
+        renderMetaGauge(metrics.npsMeta);
+        displayMotives(metrics.contagemMotivos);
+        renderDetractorSupport(metrics.detratoresComChamado);
+        allSupportReasons = metrics.detractorSupportReasons || [];
+        allRawResponses = metrics.rawResponses || [];
+        npsCurrentPage = 1;
+        displayResponsesPage();
+        const commentsForAnalysis = allRawResponses.map(row => row[5]).filter(comment => comment && comment.trim() !== '');
+        if (commentsForAnalysis.length > 0) {
+            document.getElementById('word-analysis-section').style.display = 'block';
+            document.getElementById('word-analysis-loader').style.display = 'block';
+            document.getElementById('word-analysis-content').classList.add('hidden');
+            google.script.run.withSuccessHandler(onWordDataReceived).withFailureHandler(onWordDataFailure).getWordFrequencyAnalysis(commentsForAnalysis);
+        } else {
+            document.getElementById('word-analysis-section').style.display = 'none';
+        }
+    }
+
+    function onEvolutionDataReceived(data) {
+        pageCache.data.evolution = data;
+        evolutionData = data;
+        drawEvolutionChart();
+        document.getElementById('evolution_chart_loader').style.display = 'none';
+    }
+
+    function onFailure(error) {
+        const pageContent = document.getElementById('page-content');
+        if (pageContent) {
+            pageContent.innerHTML = `<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert"><p class="font-bold">Falha ao Carregar Dados</p><p>${error.message}</p></div>`;
+        }
+    }
+
+    function onChartSelect() {
+        if (currentEvolutionView !== 'month') return;
+        const selection = evolutionChart.getSelection();
+        if (selection.length > 0) {
+            const row = selection[0].row;
+            if (row != null) {
+                const monthIso = evolutionData[row + 1][7];
+                const startDate = new Date(monthIso);
+                const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+                const range = { start: startDate.toISOString().split('T')[0], end: endDate.toISOString().split('T')[0] };
+                document.getElementById('startDateEvolution').value = range.start;
+                document.getElementById('endDateEvolution').value = range.end;
+                updateDateRangeDisplay('evolution');
+                document.getElementById('backToMonthly').style.display = 'inline-block';
+                fetchEvolutionData('week', range);
+            }
+        }
+    }
+
+    function backToMonthlyView() {
+        const today = new Date();
+        const firstDayYear = new Date(today.getFullYear(), 0, 1);
+        const range = { start: firstDayYear.toISOString().split('T')[0], end: today.toISOString().split('T')[0] };
+        document.getElementById('startDateEvolution').value = range.start;
+        document.getElementById('endDateEvolution').value = range.end;
+        updateDateRangeDisplay('evolution');
+        document.getElementById('backToMonthly').style.display = 'none';
+        pageCache.data.evolution = null;
+        fetchEvolutionData('month', range);
+    }
+
+    function createArcGauge(elementId, npsValue) {
+        const container = document.getElementById(elementId);
+        if (!container) return;
+        const fillPath = container.querySelector('.arc-gauge-fill');
+        const valueText = container.querySelector('.arc-gauge-value');
+        const clampedValue = Math.max(-100, Math.min(100, npsValue || 0));
+        let color;
+        if (clampedValue < 50) color = '#ea4335';
+        else if (clampedValue < 75) color = '#fbbc04';
+        else color = '#34a853';
+        fillPath.style.stroke = color;
+        const pathLength = fillPath.getTotalLength();
+        fillPath.style.strokeDasharray = pathLength;
+        const progress = (clampedValue + 100) / 200;
+        const offset = pathLength * (1 - progress);
+        setTimeout(() => { fillPath.style.strokeDashoffset = offset; }, 100);
+        valueText.textContent = (npsValue || 0).toFixed(1);
+    }
+
+    function renderMetaGauge(nps) {
+        const container = document.getElementById('gauge-meta');
+        if (!container) return;
+        const fillPath = container.querySelector('.arc-gauge-fill');
+        const valueText = container.querySelector('.arc-gauge-value');
+        const percentageText = document.getElementById('meta-percentage');
+        let percentage = 0;
+        let color;
+        if (nps >= 83) { percentage = 120; color = '#2563eb'; }
+        else if (nps >= 80) { percentage = 100 + ((nps - 80) / 3) * 20; color = '#22c55e'; }
+        else if (nps >= 77) { percentage = 80 + ((nps - 77) / 3) * 20; color = '#ef4444'; }
+        else { percentage = 0; color = '#ef4444'; }
+        percentageText.textContent = `${Math.round(percentage)}%`;
+        valueText.textContent = (nps || 0).toFixed(1);
+        const clampedNps = Math.max(-100, Math.min(100, nps || 0));
+        fillPath.style.stroke = color;
+        const pathLength = fillPath.getTotalLength();
+        fillPath.style.strokeDasharray = pathLength;
+        const progress = (clampedNps + 100) / 200;
+        const offset = pathLength * (1 - progress);
+        setTimeout(() => { fillPath.style.strokeDashoffset = offset; }, 100);
+    }
+
+    function drawEvolutionChart() {
+        const chartDiv = document.getElementById('evolution_chart');
+        const subtitleEl = document.getElementById('evolution-subtitle');
+        if (!evolutionData || evolutionData.length <= 1) {
+            chartDiv.innerHTML = '<p style="text-align:center; padding-top: 20px;">Não há dados para o período selecionado.</p>';
+            subtitleEl.textContent = '';
+            return;
+        }
+        if (currentEvolutionView === 'month') {
+            subtitleEl.textContent = '(Clique em um mês para detalhar as semanas)';
+        } else {
+            const monthName = new Date(document.getElementById('startDateEvolution').value.replace(/-/g, '/')).toLocaleString('pt-BR', { month: 'long' });
+            subtitleEl.textContent = `(Visão Semanal de ${monthName})`;
+        }
+        const data = google.visualization.arrayToDataTable(evolutionData);
+        const view = new google.visualization.DataView(data);
+        const columns = [0, 1, { calc: "stringify", sourceColumn: 1, type: "string", role: "annotation" }, 2, { calc: "stringify", sourceColumn: 2, type: "string", role: "annotation" }, 3, { calc: "stringify", sourceColumn: 3, type: "string", role: "annotation" }, 4, { calc: "stringify", sourceColumn: 4, type: "string", role: "annotation" }, 5, 6];
+        if (currentEvolutionView === 'month') {
+            columns.push(7);
+        }
+        view.setColumns(columns);
+        const options = {
+            legend: { position: 'top', maxLines: 3 },
+            isStacked: false,
+            seriesType: 'bars',
+            curveType: 'function',
+            annotations: { alwaysOutside: true, textStyle: { fontSize: 11, color: '#555', auraColor: 'none' }, stem: { color: 'transparent' } },
+            series: { 4: { type: 'line', color: '#00529e', targetAxisIndex: 1, lineWidth: 3, pointSize: 5, annotations: { textStyle: { fontSize: 12, color: '#00529e', bold: true, auraColor: '#fff' }, stem: { color: 'transparent' } } } },
+            hAxis: { title: currentEvolutionView === 'month' ? 'Mês' : 'Semana', textStyle: { fontSize: 12 } },
+            vAxes: { 0: { title: 'Total de Respostas', viewWindow: { min: 0 }, gridlines: { color: '#f0f0f0' } }, 1: { title: 'NPS', viewWindow: { min: 0, max: 100 }, gridlines: { color: 'transparent' } } },
+            colors: ['#ff6000', '#34a853', '#ea4335', '#fbbc04'],
+            chartArea: { left: 80, top: 60, width: '85%', height: '65%' }
+        };
+        evolutionChart = new google.visualization.ComboChart(chartDiv);
+        google.visualization.events.addListener(evolutionChart, 'select', onChartSelect);
+        evolutionChart.draw(view, options);
+    }
+
+    function clearMotiveFilter() {
+        activeMotiveFilter = { category: null, motive: null };
+        document.querySelectorAll('.motive-item.active').forEach(el => el.classList.remove('active'));
+        document.getElementById('filter-status').style.display = 'none';
+        npsCurrentPage = 1;
+        displayResponsesPage();
+    }
+
+    function updateFilterStatus() {
+        const statusContainer = document.getElementById('filter-status');
+        const statusText = document.getElementById('filter-status-text');
+        if (activeMotiveFilter.motive) {
+            statusText.innerHTML = `Filtrando por: <strong>${activeMotiveFilter.motive}</strong>`;
+            statusContainer.style.display = 'inline-flex';
+        } else {
+            statusContainer.style.display = 'none';
+        }
+    }
+
+    function toggleMotiveFilter(element, category, motive) {
+        const isActive = element.classList.contains('active');
+        document.querySelectorAll('.motive-item.active').forEach(el => el.classList.remove('active'));
+        if (isActive) {
+            activeMotiveFilter = { category: null, motive: null };
+        } else {
+            activeMotiveFilter = { category, motive };
+            element.classList.add('active');
+        }
+        updateFilterStatus();
+        npsCurrentPage = 1;
+        displayResponsesPage();
+    }
+
+    function toggleClassificationFilter(classification, element) {
+        const index = activeClassificationFilters.indexOf(classification);
+        if (index > -1) {
+            activeClassificationFilters.splice(index, 1);
+            element.classList.remove('bg-blue-500', 'text-white');
+            element.classList.add('bg-slate-100', 'text-slate-600');
+        } else {
+            activeClassificationFilters.push(classification);
+            element.classList.add('bg-blue-500', 'text-white');
+            element.classList.remove('bg-slate-100', 'text-slate-600');
+        }
+        npsCurrentPage = 1;
+        displayResponsesPage();
+    }
+
+    function getFilteredResponses() {
+        let filtered = allRawResponses;
+        if (activeMotiveFilter.motive) {
+            const motiveIndexMap = { 'Funcionamento do PC': 6, 'Qualidade de Montagem': 7, 'Visual do PC': 8, 'Transporte': 9 };
+            const index = motiveIndexMap[activeMotiveFilter.category];
+            if (index !== undefined) {
+                filtered = filtered.filter(response => response[index] === activeMotiveFilter.motive);
+            }
+        }
+        if (activeClassificationFilters.length > 0) {
+            filtered = filtered.filter(response => activeClassificationFilters.includes(response[4]?.toString().toLowerCase()));
+        }
+        return filtered;
+    }
+
+    function displayMotives(motivesData) {
+        const categoryMap = { 'Funcionamento do PC': 'motives-funcionamento', 'Qualidade de Montagem': 'motives-montagem', 'Visual do PC': 'motives-visual', 'Transporte': 'motives-transporte' };
+        Object.values(categoryMap).forEach(listId => {
+            const listElement = document.getElementById(listId);
+            if (listElement) listElement.innerHTML = '<li class="text-xs text-slate-400">Nenhum motivo apontado.</li>';
+        });
+        const escapeQuotes = (str) => str ? str.replace(/'/g, "\\'").replace(/"/g, "&quot;") : "";
+        for (const category in motivesData) {
+            const listId = categoryMap[category];
+            if (!listId) continue;
+            const container = document.getElementById(listId);
+            if (!container) continue;
+            const motives = motivesData[category];
+            const sortedMotives = Object.entries(motives).sort(([, a], [, b]) => b - a).slice(0, 5);
+            if (sortedMotives.length > 0) {
+                const maxCount = sortedMotives[0][1];
+                container.innerHTML = sortedMotives.map(([motive, count]) => {
+                    const progress = (count / maxCount) * 100;
+                    return `<li class="motive-item cursor-pointer group" onclick="toggleMotiveFilter(this, '${escapeQuotes(category)}', '${escapeQuotes(motive)}')"><div class="flex justify-between text-sm mb-1"><span class="font-medium text-slate-700 group-hover:text-orange-600">${motive}</span><span class="font-bold text-slate-800">${count}</span></div><div class="w-full bg-slate-200 rounded-full h-1.5"><div class="bg-orange-400 h-1.5 rounded-full group-hover:bg-orange-500" style="width: ${progress}%"></div></div></li>`;
+                }).join('');
+            }
+        }
+        document.querySelectorAll('.motive-item').forEach(item => {
+            item.addEventListener('click', function () {
+                document.querySelectorAll('.motive-item.active').forEach(el => el.classList.remove('active'));
+                if (activeMotiveFilter.motive) { this.classList.add('active'); }
+            });
+        });
+    }
+
+    function renderDetractorSupport(supportData) {
+        const container = document.getElementById('detractors-support-container');
+        container.innerHTML = '';
+        const sortedReasons = Object.entries(supportData).sort(([, a], [, b]) => b - a);
+        if (sortedReasons.length === 0) {
+            container.innerHTML = '<p class="text-sm text-slate-500 text-center">Nenhum detrator abriu chamado no suporte neste período.</p>';
+            return;
+        }
+        const totalChamados = sortedReasons.reduce((sum, [, count]) => sum + count, 0);
+        container.innerHTML = sortedReasons.map(([reason, count]) => {
+            const percentage = (count / totalChamados) * 100;
+            return `<div class="cursor-pointer group" onclick="openSupportModal(['${reason.replace(/'/g, "\\'")}'])"><div class="flex justify-between text-sm mb-1"><span class="font-medium text-slate-700 group-hover:text-orange-600">${reason}</span><span class="font-bold text-slate-800">${count}</span></div><div class="w-full bg-slate-200 rounded-full h-1.5"><div class="bg-red-500 h-1.5 rounded-full group-hover:bg-red-600" style="width: ${percentage}%"></div></div></div>`;
+        }).join('');
+    }
+
+    function displayResponsesPage() {
+        const tbody = document.getElementById('responses-table-body');
+        tbody.innerHTML = '';
+        const filteredResponses = getFilteredResponses();
+        if (!filteredResponses || filteredResponses.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center px-6 py-4">Nenhum comentário para os filtros selecionados.</td></tr>';
+            document.getElementById('page-info').textContent = '';
+            document.getElementById('prev-page').disabled = true;
+            document.getElementById('next-page').disabled = true;
+            return;
+        }
+        const startIndex = (npsCurrentPage - 1) * npsRowsPerPage;
+        const endIndex = startIndex + npsRowsPerPage;
+        const pageResponses = filteredResponses.slice(startIndex, endIndex);
+        const classificationClasses = { promotor: 'bg-emerald-100 text-emerald-800', neutro: 'bg-amber-100 text-amber-800', detrator: 'bg-red-100 text-red-800' };
+        pageResponses.forEach(response => {
+            const tr = document.createElement('tr');
+            tr.className = 'bg-white border-b hover:bg-slate-50';
+            const classification = response[4] ? response[4].toString().toLowerCase() : '';
+            const badgeClass = classificationClasses[classification] || 'bg-slate-100 text-slate-800';
+            tr.innerHTML = `<td class="px-6 py-4">${response[0]}</td><td class="px-6 py-4">${response[1]}</td><td class="px-6 py-4">${response[2]}</td><td class="px-6 py-4">${response[3]}</td><td class="px-6 py-4"><span class="px-2 py-1 text-xs font-medium rounded-full capitalize ${badgeClass}">${classification}</span></td><td class="px-6 py-4">${response[5]}</td>`;
+            tbody.appendChild(tr);
+        });
+        document.getElementById('page-info').textContent = `${startIndex + 1} - ${Math.min(endIndex, filteredResponses.length)} de ${filteredResponses.length}`;
+        document.getElementById('prev-page').disabled = npsCurrentPage === 1;
+        document.getElementById('next-page').disabled = endIndex >= filteredResponses.length;
+    }
+
+    function openAiModal() {
+        document.getElementById('ai-modal-overlay').classList.remove('hidden');
+        void document.getElementById('ai-modal-panel').offsetWidth;
+        document.getElementById('ai-modal-panel').classList.add('open');
+        resetAiPanel();
+    }
+
+    function closeAiModal() {
+        document.getElementById('ai-modal-panel').classList.remove('open');
+        const overlay = document.getElementById('ai-modal-overlay');
+        setTimeout(() => { overlay.classList.add('hidden'); }, 300);
+    }
+
+    function resetAiPanel() {
+        document.getElementById('ai-hub-initial').style.display = 'block';
+        document.querySelectorAll('.ai-tab-content').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.ai-placeholder').forEach(el => el.style.display = 'block');
+        document.querySelectorAll('.ai-results-container').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.ai-tab').forEach(tab => tab.classList.remove('active'));
+        document.getElementById('export-ai-btn').disabled = Object.keys(aiInsightsCache).length === 0;
+    }
+
+    function switchAiTab(tabName) {
+        document.getElementById('ai-hub-initial').style.display = 'none';
+        document.querySelectorAll('.ai-tab').forEach(tab => tab.classList.remove('active'));
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        document.querySelectorAll('.ai-tab-content').forEach(content => content.style.display = 'none');
+        const contentEl = document.getElementById(`content-${tabName}`);
+        contentEl.style.display = 'block';
+        if (aiInsightsCache[tabName]) {
+            contentEl.querySelector('.ai-placeholder').style.display = 'none';
+            contentEl.querySelector('.ai-results-container').style.display = 'block';
+            displayAiData(tabName, aiInsightsCache[tabName]);
+        } else {
+            contentEl.querySelector('.ai-placeholder').style.display = 'block';
+            contentEl.querySelector('.ai-results-container').style.display = 'none';
+        }
+    }
+
+    function runAnalysisForTab(tabName) {
+        if (aiInsightsCache[tabName]) { displayAiData(tabName, aiInsightsCache[tabName]); return; }
+        const contentEl = document.getElementById(`content-${tabName}`);
+        const placeholderEl = contentEl.querySelector('.ai-placeholder');
+        const resultsEl = contentEl.querySelector('.ai-results-container');
+        const loader = document.getElementById('ai-tab-loader');
+        const comments = getFilteredResponses().map(row => row[5]).filter(comment => comment && comment.trim() !== '');
+        if (comments.length === 0) { alert('Não há comentários para analisar no filtro atual.'); return; }
+        let serverFunction;
+        if (tabName === 'problems') serverFunction = 'getProblemAndSuggestionAnalysis';
+        else if (tabName === 'topics') serverFunction = 'getTopicAnalysis';
+        else if (tabName === 'praises') serverFunction = 'getPraiseAnalysis';
+        else return;
+        placeholderEl.style.display = 'none';
+        loader.style.display = 'flex';
+        google.script.run
+            .withSuccessHandler(function (result) {
+                aiInsightsCache[tabName] = result;
+                loader.style.display = 'none';
+                resultsEl.style.display = 'block';
+                displayAiData(tabName, result);
+                document.getElementById('export-ai-btn').disabled = false;
+            })
+            .withFailureHandler(function (error) {
+                console.error(`Error fetching ${tabName}:`, error);
+                loader.style.display = 'none';
+                placeholderEl.style.display = 'block';
+                alert(`Erro ao realizar a análise: ${error.message}`);
+            })[serverFunction](comments);
+    }
+
+    function displayAiData(tabName, data) {
+        if (tabName === 'problems') {
+            const problemsList = document.querySelector('#content-problems #problems-list');
+            const solutionsList = document.querySelector('#content-problems #solutions-list');
+            problemsList.innerHTML = data.problemas_recorrentes?.length ? data.problemas_recorrentes.map(item => createCard(item, 'bg-slate-700/80')).join('') : '<p class="text-sm text-slate-400">Nenhum problema recorrente identificado.</p>';
+            solutionsList.innerHTML = data.sugestoes_de_acoes?.length ? data.sugestoes_de_acoes.map(item => createCard(item, 'bg-slate-700/80')).join('') : '<p class="text-sm text-slate-400">Nenhuma sugestão gerada.</p>';
+        } else if (tabName === 'topics') {
+            const topicsList = document.querySelector('#content-topics #topics-list');
+            topicsList.innerHTML = data.principais_topicos?.length ? data.principais_topicos.map(createTopicCard).join('') : '<p class="text-sm text-slate-400">Nenhum tópico identificado.</p>';
+        } else if (tabName === 'praises') {
+            const praisesList = document.querySelector('#content-praises #praises-list');
+            praisesList.innerHTML = data.elogios_destacados?.length ? data.elogios_destacados.map(item => createCard(item, 'bg-slate-700/50')).join('') : '<p class="text-sm text-slate-400">Nenhum elogio destacado identificado.</p>';
+        }
+    }
+    const createCard = (item, colorClass = 'bg-slate-700') => `<div class="${colorClass} p-4 rounded-lg"><h4 class="font-semibold text-white">${item.titulo}</h4><p class="text-sm text-slate-300 mt-1">${item.descricao}</p></div>`;
+    const createTopicCard = (item) => {
+        const sentimentColors = { 'Positivo': 'bg-emerald-500', 'Negativo': 'bg-red-500', 'Neutro': 'bg-amber-500' };
+        const bgColor = sentimentColors[item.sentimento_medio] || 'bg-slate-600';
+        return `<div class="bg-slate-700 p-3 rounded-lg"><div class="flex justify-between items-center"><h4 class="font-semibold text-white">${item.topico}</h4><span class="text-xs font-bold text-slate-900 px-2 py-0.5 rounded-full ${bgColor}">${item.sentimento_medio}</span></div><p class="text-xs text-slate-400 mt-1">Mencionado em ~${item.frequencia} comentários</p></div>`;
+    };
+
+    function exportAiAnalysis() {
+        if (Object.keys(aiInsightsCache).length === 0) { alert("Nenhuma análise foi gerada para exportar."); return; }
+        const csvRows = [];
+        csvRows.push(["Tipo de Análise", "Categoria/Tópico", "Detalhe/Sentimento", "Frequência"].join(','));
+        if (aiInsightsCache.problems) {
+            aiInsightsCache.problems.problemas_recorrentes.forEach(p => { csvRows.push(`"Problema Recorrente","${p.titulo}","${p.descricao.replace(/"/g, '""')}",`); });
+            aiInsightsCache.problems.sugestoes_de_acoes.forEach(s => { csvRows.push(`"Sugestão de Ação","${s.titulo}","${s.descricao.replace(/"/g, '""')}",`); });
+        }
+        if (aiInsightsCache.topics) { aiInsightsCache.topics.principais_topicos.forEach(t => { csvRows.push(`"Tópico Principal","${t.topico}","${t.sentimento_medio}",${t.frequencia}`); }); }
+        if (aiInsightsCache.praises) { aiInsightsCache.praises.elogios_destacados.forEach(p => { csvRows.push(`"Ponto Forte/Elogio","${p.titulo}","${p.descricao.replace(/"/g, '""')}",`); }); }
+        csvRows.push([]);
+        csvRows.push(["Dados Brutos Analisados"]);
+        csvRows.push(["Data", "Pedido", "OS", "Cliente", "Classificação", "Comentário"].join(','));
+        getFilteredResponses().forEach(row => {
+            const sanitizedComment = `"${(row[5] || '').replace(/"/g, '""')}"`;
+            csvRows.push([row[0], row[1], row[2], row[3], row[4], sanitizedComment].join(','));
+        });
+        exportToCsv(`analise_ia_nps_${new Date().toISOString().split('T')[0]}.csv`, csvRows.map(r => (typeof r === 'string' ? r.split(',') : r)));
+    }
+
+    function openSupportModal(reasons) {
+        const modal = document.getElementById('support-modal');
+        const modalContent = document.getElementById('support-modal-content');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => { modal.classList.remove('opacity-0'); modalContent.classList.remove('scale-95'); }, 10);
+        activeSupportReasons = reasons;
+        populateSupportModalFilters();
+        fetchSupportDetails();
+    }
+
+    function closeSupportModal() {
+        const modal = document.getElementById('support-modal');
+        const modalContent = document.getElementById('support-modal-content');
+        modal.classList.add('opacity-0');
+        modalContent.classList.add('scale-95');
+        setTimeout(() => { modal.classList.add('hidden'); modal.classList.remove('flex'); }, 300);
+    }
+
+    function populateSupportModalFilters() {
+        const container = document.getElementById('support-modal-filters');
+        container.innerHTML = '';
+        allSupportReasons.forEach(reason => {
+            const isActive = activeSupportReasons.includes(reason);
+            const button = document.createElement('button');
+            button.className = `px-3 py-1 text-xs font-semibold rounded-full transition-colors ${isActive ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`;
+            button.textContent = reason;
+            button.onclick = () => toggleSupportReasonFilter(reason, button);
+            container.appendChild(button);
+        });
+    }
+
+    function toggleSupportReasonFilter(reason, element) {
+        const index = activeSupportReasons.indexOf(reason);
+        if (index > -1) {
+            activeSupportReasons.splice(index, 1);
+            element.classList.remove('bg-blue-500', 'text-white');
+            element.classList.add('bg-slate-100', 'text-slate-600');
+        } else {
+            activeSupportReasons.push(reason);
+            element.classList.add('bg-blue-500', 'text-white');
+            element.classList.remove('bg-slate-100', 'text-slate-600');
+        }
+        fetchSupportDetails();
+    }
+
+    function fetchSupportDetails() {
+        document.getElementById('support-modal-loader').style.display = 'block';
+        document.getElementById('support-modal-table-container').classList.add('hidden');
+        const dateRange = { start: document.getElementById('startDate').value, end: document.getElementById('endDate').value };
+        google.script.run.withSuccessHandler(onSupportDetailsReceived).withFailureHandler(onFailure).getDetractorSupportDetails(dateRange, activeSupportReasons);
+    }
+
+    function onSupportDetailsReceived(data) {
+        currentSupportDetails = data;
+        document.getElementById('support-modal-loader').style.display = 'none';
+        document.getElementById('support-modal-table-container').classList.remove('hidden');
+        const tbody = document.getElementById('support-modal-table-body');
+        tbody.innerHTML = '';
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-10 text-slate-500">Nenhum dado encontrado para os filtros selecionados.</td></tr>';
+            return;
+        }
+        const classificationClasses = { promotor: 'bg-emerald-100 text-emerald-800', neutro: 'bg-amber-100 text-amber-800', detrator: 'bg-red-100 text-red-800' };
+        data.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.className = 'border-b hover:bg-slate-50';
+            const classification = item.classificacao?.toLowerCase() || '';
+            const badgeClass = classificationClasses[classification] || 'bg-slate-100 text-slate-800';
+            const shortComment = item.comentario.length > 50 ? item.comentario.substring(0, 50) + '...' : item.comentario;
+            tr.innerHTML = `<td class="px-4 py-2">${item.dataAvaliacao}</td><td class="px-4 py-2">${item.pedido}</td><td class="px-4 py-2">${item.os}</td><td class="px-4 py-2">${item.cliente}</td><td class="px-4 py-2"><span class="px-2 py-1 text-xs font-medium rounded-full capitalize ${badgeClass}">${classification}</span></td><td class="px-4 py-2" title="${item.comentario}">${shortComment}</td><td class="px-4 py-2">${item.resolucao}</td><td class="px-4 py-2">${item.defeito}</td><td class="px-4 py-2" title="${item.relatoCliente}">${item.relatoCliente.length > 50 ? item.relatoCliente.substring(0, 50) + '...' : item.relatoCliente}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function onWordDataFailure(error) {
+        console.error('Falha na análise de termos:', error);
+        document.getElementById('word-analysis-loader').innerHTML = '<p class="text-sm font-semibold text-red-500">Ocorreu um erro ao analisar os termos.</p>';
+    }
+
+    function onWordDataReceived(data) {
+        document.getElementById('word-analysis-loader').style.display = 'none';
+        document.getElementById('word-analysis-content').classList.remove('hidden');
+        const categoryMap = { "Funcionamento do PC": "word-analysis-funcionamento", "Qualidade de Montagem": "word-analysis-montagem", "Visual do PC": "word-analysis-visual", "Transporte": "word-analysis-transporte" };
+        for (const category in categoryMap) {
+            const container = document.getElementById(categoryMap[category]);
+            container.innerHTML = '';
+            const words = data[category];
+            if (!words || words.length === 0) {
+                container.innerHTML = '<li class="text-xs text-slate-400">Nenhum termo relevante encontrado.</li>';
+                continue;
+            }
+            const maxFrequency = Math.max(...words.map(item => item.frequencia), 0);
+            words.forEach(item => {
+                const percentage = maxFrequency > 0 ? (item.frequencia / maxFrequency) * 100 : 0;
+                const listItem = document.createElement('li');
+                listItem.className = 'cursor-pointer group';
+                listItem.onclick = () => openWordContextModal(item.palavra);
+                listItem.innerHTML = `<div class="flex justify-between items-center text-sm mb-1"><span class="font-medium text-slate-700 capitalize group-hover:text-orange-600">${item.palavra}</span><span class="font-bold text-slate-800">${item.frequencia}</span></div><div class="w-full bg-slate-200 rounded-full h-1.5"><div class="bg-orange-400 h-1.5 rounded-full group-hover:bg-orange-500" style="width: ${percentage}%"></div></div>`;
+                container.appendChild(listItem);
+            });
+        }
+    }
+
+    function openWordContextModal(word) {
+        const modal = document.getElementById('word-context-modal');
+        const modalContent = document.getElementById('word-context-modal-content');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => { modal.classList.remove('opacity-0'); modalContent.classList.remove('scale-95'); }, 10);
+        document.getElementById('word-context-modal-title').textContent = `Comentários contendo "${word}"`;
+        const filteredComments = allRawResponses.filter(response => new RegExp(`\\b${word}\\b`, 'i').test(response[5] || ''));
+        const tbody = document.getElementById('word-context-modal-table-body');
+        tbody.innerHTML = '';
+        if (filteredComments.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-10 text-slate-500">Nenhum comentário encontrado com este termo.</td></tr>';
+            return;
+        }
+        const classificationClasses = { promotor: 'bg-emerald-100 text-emerald-800', neutro: 'bg-amber-100 text-amber-800', detrator: 'bg-red-100 text-red-800' };
+        filteredComments.forEach(response => {
+            const tr = document.createElement('tr');
+            tr.className = 'border-b hover:bg-slate-50';
+            const classification = response[4]?.toLowerCase() || '';
+            const badgeClass = classificationClasses[classification] || 'bg-slate-100 text-slate-800';
+            const highlightedComment = (response[5] || '').replace(new RegExp(`(${word})`, 'gi'), '<mark class="bg-amber-200 px-1 rounded">$1</mark>');
+            tr.innerHTML = `<td class="px-4 py-2">${response[0]}</td><td class="px-4 py-2">${response[1]}</td><td class="px-4 py-2">${response[2]}</td><td class="px-4 py-2">${response[3]}</td><td class="px-4 py-2"><span class="px-2 py-1 text-xs font-medium rounded-full capitalize ${badgeClass}">${classification}</span></td><td class="px-4 py-2">${highlightedComment}</td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function closeWordContextModal() {
+        const modal = document.getElementById('word-context-modal');
+        const modalContent = document.getElementById('word-context-modal-content');
+        modal.classList.add('opacity-0');
+        modalContent.classList.add('scale-95');
+        setTimeout(() => { modal.classList.add('hidden'); modal.classList.remove('flex'); }, 300);
+    }
+
+    function exportToCsv(filename, rows) {
+        if (!rows || rows.length === 0) { alert('Não há dados para exportar.'); return; }
+        const processRow = (row) => {
+            return row.map(val => {
+                let innerValue = val === null || val === undefined ? '' : String(val);
+                if (val instanceof Date) { innerValue = val.toLocaleString(); }
+                let result = innerValue.replace(/"/g, '""');
+                if (result.search(/("|,|\n)/g) >= 0) { result = '"' + result + '"'; }
+                return result;
+            }).join(',');
+        };
+        const csvContent = rows.map(processRow).join('\n');
+        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function exportComments() {
+        const headers = ["Data", "Pedido", "OS", "Cliente", "Classificação", "Comentário"];
+        const dataToExport = getFilteredResponses().map(row => [row[0], row[1], row[2], row[3], row[4], row[5]]);
+        exportToCsv('comentarios_nps.csv', [headers, ...dataToExport]);
+    }
+
+    function exportSupportDetails() {
+        const headers = ["Data Avaliação", "Pedido", "OS", "Cliente", "Classificação", "Comentário", "Resolução", "Defeito", "Relato do Cliente"];
+        const dataToExport = currentSupportDetails.map(item => [item.dataAvaliacao, item.pedido, item.os, item.cliente, item.classificacao, item.comentario, item.resolucao, item.defeito, item.relatoCliente]);
+        exportToCsv('detratores_suporte.csv', [headers, ...dataToExport]);
+    }
+
+
+</script>
+
