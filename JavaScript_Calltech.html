@@ -49,6 +49,7 @@ function initializeCalltechPage() {
             clearTimeout(filterTimeout);
             filterTimeout = setTimeout(filterCalltechTable, 300);
         });
+        document.getElementById('filter-nps-toggle').addEventListener('change', filterCalltechTable);
 
         // Busca os dados iniciais
         fetchCalltechData();
@@ -148,6 +149,14 @@ function onCalltechDataReceived(data) {
     document.getElementById('kpi-closed').textContent = data.kpis.closed || 0;
     document.getElementById('kpi-avg-time').textContent = `${data.kpis.avgTime || 0} dias`;
     document.getElementById('kpi-retention-value').textContent = (data.kpis.retentionValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    
+    // Atualiza o novo card de NPS Pós-Atendimento
+    const npsFeedback = data.kpis.npsFeedback || { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
+    document.getElementById('kpi-nps-total').textContent = npsFeedback.total;
+    document.getElementById('kpi-nps-promoters').textContent = npsFeedback.promoters;
+    document.getElementById('kpi-nps-neutrals').textContent = npsFeedback.neutrals;
+    document.getElementById('kpi-nps-detractors').textContent = npsFeedback.detractors;
+
 
     if (data.resolutionRate) {
         updateResolutionRateCard(data.resolutionRate);
@@ -195,25 +204,49 @@ function drawDailyFlowChart(chartData) {
             minValue: 0,
             gridlines: { color: '#f1f5f9' }
         },
+        annotations: {
+            alwaysOutside: true,
+            textStyle: {
+                fontSize: 11,
+                color: '#555',
+                auraColor: 'none'
+            }
+        },
         // Cores da marca KaBuM!
         colors: ['#ff6000', '#00529e'], // Laranja KaBuM! para Abertos, Azul KaBuM! para Fechados
         chartArea: { left: 40, top: 40, width: '85%', height: '70%' },
         bar: { groupWidth: '60%' } // Reduz a largura para aumentar o espaçamento entre os dias
     };
 
+    const view = new google.visualization.DataView(data);
+    view.setColumns([0, 1, {
+        calc: "stringify",
+        sourceColumn: 1,
+        type: "string",
+        role: "annotation"
+    }, 2, {
+        calc: "stringify",
+        sourceColumn: 2,
+        type: "string",
+        role: "annotation"
+    }]);
+
     const chart = new google.visualization.ColumnChart(chartContainer);
-    chart.draw(data, options);
+    chart.draw(view, options);
 }
 
 
 function filterCalltechTable() {
     const chamadoFilter = document.getElementById('filter-chamado-input').value.toLowerCase();
     const pedidoFilter = document.getElementById('filter-pedido-input').value.toLowerCase();
+    const npsOnlyFilter = document.getElementById('filter-nps-toggle').checked;
 
     filteredCalltechTickets = allCalltechTickets.filter(ticket => {
         const chamadoMatch = (ticket.chamadoId || '').toLowerCase().includes(chamadoFilter);
         const pedidoMatch = (ticket.pedidoId || '').toLowerCase().includes(pedidoFilter);
-        return chamadoMatch && pedidoMatch;
+        const npsMatch = !npsOnlyFilter || ticket.hasNps === true;
+        
+        return chamadoMatch && pedidoMatch && npsMatch;
     });
     calltechCurrentPage = 1;
     displayCalltechPage();
