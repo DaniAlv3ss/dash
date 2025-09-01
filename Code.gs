@@ -259,10 +259,24 @@ function getCalltechData(dateRange) {
     const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
     const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
     const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO); 
+    const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
+    const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
 
-    if (!abaManager || !abaAtendimento) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
+    if (!abaManager || !abaAtendimento || !abaNPS) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
 
     const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
+    const allNPSData = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
+
+    // Cria um mapa de Pedido ID para classificação NPS para consulta rápida
+    const npsMap = new Map();
+    const uniqueNPSRows = getUniqueValidRows(allNPSData, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
+    uniqueNPSRows.forEach(row => {
+        const pedidoId = row[INDICES_NPS.PEDIDO_ID]?.trim();
+        const classification = row[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
+        if (pedidoId && classification) {
+            npsMap.set(pedidoId, classification);
+        }
+    });
 
     // --- Processamento para KPIs e Tabela ---
     let openTickets = 0;
@@ -271,6 +285,9 @@ function getCalltechData(dateRange) {
     let resolvedTicketsCount = 0;
     const resolutionCounts = { day0: 0, day1: 0, day2: 0, day3: 0, day4plus: 0 };
     const tickets = [];
+    const npsFeedback = { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
+    const ticketPedidoIds = new Set(); // Para evitar contar NPS para múltiplos chamados do mesmo pedido
+
 
     allManagerData.forEach((row, index) => {
       const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
@@ -291,6 +308,7 @@ function getCalltechData(dateRange) {
           const status = row[INDICES_CALLTECH.STATUS] || "";
           const closeDateStr = row[INDICES_CALLTECH.DATA_FINALIZACAO];
           const isClosed = status.toLowerCase().includes('finalizado') || status.toLowerCase().includes('resolvido');
+          const pedidoId = row[INDICES_CALLTECH.PEDIDO_ID]?.trim();
 
           if (isClosed) {
             closedTickets++;
@@ -320,11 +338,24 @@ function getCalltechData(dateRange) {
             status: status,
             chamadoId: chamadoId,
             dataAbertura: openDateStr.split(' ')[0],
-            pedidoId: row[INDICES_CALLTECH.PEDIDO_ID],
+            pedidoId: pedidoId,
             cliente: row[INDICES_CALLTECH.CLIENTE],
             dataFinalizacao: closeDateStr ? closeDateStr.split(' ')[0] : '',
-            email: row[INDICES_CALLTECH.EMAIL]
+            email: row[INDICES_CALLTECH.EMAIL],
+            hasNps: npsMap.has(pedidoId) // Adiciona a flag se o pedido tem NPS
           });
+
+          // Processa o feedback NPS para este pedido apenas uma vez
+          if (pedidoId && !ticketPedidoIds.has(pedidoId)) {
+              if (npsMap.has(pedidoId)) {
+                  const classification = npsMap.get(pedidoId);
+                  npsFeedback.total++;
+                  if (classification === 'promotor') npsFeedback.promoters++;
+                  else if (classification === 'neutro') npsFeedback.neutrals++;
+                  else if (classification === 'detrator') npsFeedback.detractors++;
+              }
+              ticketPedidoIds.add(pedidoId);
+          }
         }
       } catch (e) {
         Logger.log(`Erro ao processar linha ${index + 2} da planilha Manager: ${e.message}. Dados da linha: ${row.join(', ')}`);
@@ -380,7 +411,8 @@ function getCalltechData(dateRange) {
         open: openTickets,
         closed: closedTickets,
         avgTime: avgResolutionTime,
-        retentionValue: retentionValue 
+        retentionValue: retentionValue,
+        npsFeedback: npsFeedback
       },
       resolutionRate: resolutionRate
     };
@@ -388,7 +420,7 @@ function getCalltechData(dateRange) {
     Logger.log(`Erro fatal na função getCalltechData: ${e.stack}`);
     return { 
       tickets: [], 
-      kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0 },
+      kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0, npsFeedback: { total: 0, promoters: 0, neutrals: 0, detractors: 0 } },
       resolutionRate: {}
     };
   }
@@ -447,10 +479,16 @@ function getDailyFlowChartData(dateRange) {
         }
     });
 
+    const weekDayInitials = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']; // Dom, Seg, Ter, Qua, Qui, Sex, Sab
     const dailyFlowChartData = [['Dia', 'Abertos', 'Fechados']];
     Object.keys(dailyFlow).sort().forEach(dayISO => {
+        const date = new Date(dayISO.replace(/-/g, '/'));
+        const dayOfWeek = date.getUTCDay(); // Usar getUTCDay para consistência
+        const weekDayInitial = weekDayInitials[dayOfWeek];
+
         const [year, month, day] = dayISO.split('-');
-        dailyFlowChartData.push([`${day}/${month}`, dailyFlow[dayISO].opened, dailyFlow[dayISO].closed]);
+        const label = `${day}/${month}\n(${weekDayInitial})`;
+        dailyFlowChartData.push([label, dailyFlow[dayISO].opened, dailyFlow[dayISO].closed]);
     });
     
     return dailyFlowChartData;
