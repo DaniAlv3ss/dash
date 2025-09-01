@@ -1,0 +1,108 @@
+<div id="calltech-loader">
+    <!-- O loader principal da página Index.html será mostrado aqui -->
+</div>
+
+<div id="calltech-content" style="visibility: hidden;">
+    <!-- Filtro de Data -->
+    <div class="flex justify-end mb-6 relative">
+        <div class="date-dropdown">
+            <button id="ct-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center gap-2">
+                <span id="ct-date-range-display">Carregando...</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+            </button>
+            <div id="ct-date-range-popup" class="date-popup">
+                <div class="date-inputs">
+                    <div><label for="ct-startDate">Data Início</label><input type="date" id="ct-startDate"></div>
+                    <div><label for="ct-endDate">Data Fim</label><input type="date" id="ct-endDate"></div>
+                </div>
+                <div class="popup-actions">
+                    <button id="ct-cancelButton" class="cancel-button">Cancelar</button>
+                    <button id="ct-applyButton" class="apply-button">Aplicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPIs - Primeira Fileira -->
+    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Total de Chamados</h4>
+            <p id="kpi-total" class="text-4xl font-bold text-slate-800 mt-2">0</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Chamados Abertos</h4>
+            <p id="kpi-open" class="text-4xl font-bold text-yellow-500 mt-2">0</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Chamados Finalizados</h4>
+            <p id="kpi-closed" class="text-4xl font-bold text-green-500 mt-2">0</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Tempo Médio de Resolução</h4>
+            <p id="kpi-avg-time" class="text-4xl font-bold text-blue-500 mt-2">0 dias</p>
+        </div>
+    </section>
+
+    <!-- KPIs - Segunda Fileira (NOVA) -->
+    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Valor Retido no Atendimento</h4>
+            <p id="kpi-retention-value" class="text-4xl font-bold text-purple-600 mt-2">R$ 0,00</p>
+        </div>
+    </section>
+
+    <!-- Tabela de Chamados -->
+    <div class="bg-white p-6 rounded-xl shadow-sm">
+        <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
+            <h3 class="text-lg font-semibold text-slate-800">Detalhes dos Chamados</h3>
+            <div class="flex items-center gap-4">
+                 <input type="text" id="filter-chamado-input" placeholder="Filtrar por Cód. Chamado..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-48">
+                 <input type="text" id="filter-pedido-input" placeholder="Filtrar por Pedido..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-48">
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-600 uppercase">
+                    <tr>
+                        <th class="p-3">Cód. Chamado</th>
+                        <th class="p-3">Pedido</th>
+                        <th class="p-3">Cliente</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Data Abertura</th>
+                        <th class="p-3">Data Finalização</th>
+                    </tr>
+                </thead>
+                <tbody id="calltech-table-body" class="text-slate-700">
+                    <!-- Linhas serão inseridas pelo JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <!-- Paginação -->
+        <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+            <span id="ct-page-info"></span>
+            <div class="ml-4">
+                <button id="ct-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                <button id="ct-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Histórico de Cliente -->
+<div id="clientes-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300" onclick="event.stopPropagation()">
+    <div id="clientes-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center p-4 border-b bg-white rounded-t-xl">
+            <h2 class="text-xl font-semibold text-slate-800">Histórico do Cliente</h2>
+            <button id="close-clientes-modal-btn" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+        </div>
+        <div class="p-6 overflow-y-auto">
+            <div id="clientes-detail-loader" class="text-center py-10">
+                <p class="text-slate-500">Carregando histórico...</p>
+            </div>
+            <div id="clientes-detail-content">
+                <!-- Conteúdo do histórico do cliente será inserido aqui -->
+            </div>
+        </div>
+    </div>
+</div>
+
