@@ -10,7 +10,7 @@ const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
 
 // Constantes para nomes de abas
 const NOME_ABA_NPS = "Avaliações 2025";
-const NOME_ABA_ACOES = "ações 2025"; // NOVA ABA
+const NOME_ABA_ACOES = "ações 2025"; // O nome da aba está em minúsculas
 const NOME_ABA_ATENDIMENTO = "Forms";
 const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager"; // Aba para a nova página Calltech
@@ -536,7 +536,8 @@ function getNpsTimelineData(dateRange) {
 
     // Pega todos os dados de NPS e Ações
     const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getValues();
-    const dadosAcoes = abaAcoes.getRange(2, 1, abaAcoes.getLastRow() - 1, 6).getValues(); // Coluna 1 (A) e 6 (F)
+    // ATUALIZADO: Lendo até a coluna G (7 colunas no total) para pegar a data da ação
+    const dadosAcoes = abaAcoes.getRange(2, 1, abaAcoes.getLastRow() - 1, 7).getValues(); 
 
     // Filtra os dados de NPS pelo range de data solicitado
     const dadosFiltrados = todosDadosNPS.filter(linha => {
@@ -571,13 +572,15 @@ function getNpsTimelineData(dateRange) {
     // Processa as ações e as associa a cada semana
     const actionsByWeek = {};
     dadosAcoes.forEach(acao => {
-        const acaoTexto = acao[0];
-        const acaoData = acao[5];
+        // ATUALIZADO: Usando Coluna B (índice 1) para o texto e Coluna G (índice 6) para a data.
+        const acaoTexto = acao[1]; 
+        const acaoData = acao[6]; 
         if (acaoTexto && acaoData instanceof Date) {
             const date = new Date(acaoData);
             const firstDayOfWeek = new Date(date.setDate(date.getDate() - date.getDay()));
             const key = Utilities.formatDate(firstDayOfWeek, "GMT-3", "yyyy-MM-dd");
-            if (!actionsByWeek[key]) {
+            
+             if (!actionsByWeek[key]) {
                 actionsByWeek[key] = [];
             }
             actionsByWeek[key].push(acaoTexto);
@@ -619,6 +622,45 @@ function getNpsTimelineData(dateRange) {
 
   } catch (e) {
     Logger.log(`Erro em getNpsTimelineData: ${e.stack}`);
+    return { error: e.message };
+  }
+}
+
+/**
+ * NOVA FUNÇÃO: Busca as 6 ações mais recentes para a timeline.
+ */
+function getRecentActions() {
+  try {
+    const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
+    const abaAcoes = planilhaNPS.getSheetByName(NOME_ABA_ACOES);
+    if (!abaAcoes) {
+      throw new Error("Aba de Ações não encontrada.");
+    }
+
+    // Ler as colunas B (ação) e G (data) - o range começa em B e vai até G (6 colunas)
+    const dadosAcoes = abaAcoes.getRange(2, 2, abaAcoes.getLastRow() - 1, 6).getValues(); 
+
+    const acoesComData = dadosAcoes
+      .map(linha => ({
+        acao: linha[0], // Coluna B (índice 0 no array lido)
+        data: linha[5]  // Coluna G (índice 5 no array lido)
+      }))
+      .filter(item => item.acao && item.data instanceof Date && !isNaN(item.data));
+
+    // Ordenar pela data mais recente
+    acoesComData.sort((a, b) => b.data - a.data);
+
+    // Pegar as 6 mais recentes e formatar
+    const acoesRecentes = acoesComData.slice(0, 6).map(item => ({
+      acao: item.acao,
+      data: Utilities.formatDate(item.data, "GMT-3", "dd/MM/yyyy")
+    }));
+
+    // Inverte a ordem para exibir da mais antiga para a mais recente (esquerda para direita)
+    return acoesRecentes.reverse();
+
+  } catch (e) {
+    Logger.log(`Erro em getRecentActions: ${e.stack}`);
     return { error: e.message };
   }
 }
