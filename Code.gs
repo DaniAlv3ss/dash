@@ -10,6 +10,7 @@ const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
 
 // Constantes para nomes de abas
 const NOME_ABA_NPS = "Avaliações 2025";
+const NOME_ABA_ACOES = "ações 2025"; // NOVA ABA
 const NOME_ABA_ATENDIMENTO = "Forms";
 const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager"; // Aba para a nova página Calltech
@@ -519,6 +520,109 @@ function getDailyFlowChartData(dateRange) {
   }
 }
 
+/**
+ * NOVA FUNÇÃO: Busca dados para o gráfico de timeline de performance do NPS.
+ * Agrega dados de NPS por semana e cruza com ações estratégicas.
+ */
+function getNpsTimelineData(dateRange) {
+  try {
+    const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
+    const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
+    const abaAcoes = planilhaNPS.getSheetByName(NOME_ABA_ACOES); 
+
+    if (!abaNPS || !abaAcoes) {
+      throw new Error("Aba de NPS ou de Ações não encontrada.");
+    }
+
+    // Pega todos os dados de NPS e Ações
+    const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getValues();
+    const dadosAcoes = abaAcoes.getRange(2, 1, abaAcoes.getLastRow() - 1, 6).getValues(); // Coluna 1 (A) e 6 (F)
+
+    // Filtra os dados de NPS pelo range de data solicitado
+    const dadosFiltrados = todosDadosNPS.filter(linha => {
+      const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
+      if (!dataAvaliacao || !(dataAvaliacao instanceof Date)) return false;
+      const dataFormatada = Utilities.formatDate(dataAvaliacao, "GMT-3", "yyyy-MM-dd");
+      return dataFormatada >= dateRange.start && dataFormatada <= dateRange.end;
+    });
+
+    const dadosUnicos = getUniqueValidRows(dadosFiltrados, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
+
+    // Agrupa as métricas por semana
+    const weeklyMetrics = {};
+    dadosUnicos.forEach(linha => {
+      const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
+      const date = new Date(dataAvaliacao);
+      
+      // Chave da semana (baseada no domingo daquela semana)
+      const firstDayOfWeek = new Date(date.setDate(date.getDate() - date.getDay()));
+      const key = Utilities.formatDate(firstDayOfWeek, "GMT-3", "yyyy-MM-dd");
+
+      if (!weeklyMetrics[key]) {
+        weeklyMetrics[key] = { promoters: 0, neutrals: 0, detractors: 0, endDate: new Date(firstDayOfWeek.getTime() + 6 * 24 * 60 * 60 * 1000) };
+      }
+
+      const classificacao = linha[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
+      if (classificacao === 'promotor') weeklyMetrics[key].promoters++;
+      else if (classificacao === 'neutro') weeklyMetrics[key].neutrals++;
+      else if (classificacao === 'detrator') weeklyMetrics[key].detractors++;
+    });
+
+    // Processa as ações e as associa a cada semana
+    const actionsByWeek = {};
+    dadosAcoes.forEach(acao => {
+        const acaoTexto = acao[0];
+        const acaoData = acao[5];
+        if (acaoTexto && acaoData instanceof Date) {
+            const date = new Date(acaoData);
+            const firstDayOfWeek = new Date(date.setDate(date.getDate() - date.getDay()));
+            const key = Utilities.formatDate(firstDayOfWeek, "GMT-3", "yyyy-MM-dd");
+            if (!actionsByWeek[key]) {
+                actionsByWeek[key] = [];
+            }
+            actionsByWeek[key].push(acaoTexto);
+        }
+    });
+
+    // Monta o array final, calculando o NPS e as variações
+    const sortedKeys = Object.keys(weeklyMetrics).sort();
+    const result = [];
+    let previousWeekMetrics = null;
+
+    sortedKeys.forEach(key => {
+      const metrics = weeklyMetrics[key];
+      const total = metrics.promoters + metrics.neutrals + metrics.detractors;
+      const nps = total > 0 ? parseFloat((((metrics.promoters - metrics.detractors) / total) * 100).toFixed(1)) : 0;
+      
+      const weekData = {
+        weekLabel: `Semana de ${Utilities.formatDate(new Date(key), "GMT-3", "dd/MM")}`,
+        nps: nps,
+        detractors: metrics.detractors,
+        neutrals: metrics.neutrals,
+        actions: actionsByWeek[key] || [],
+        npsChange: 0,
+        detractorsChange: 0,
+        neutralsChange: 0
+      };
+
+      if (previousWeekMetrics) {
+        weekData.npsChange = parseFloat((nps - previousWeekMetrics.nps).toFixed(1));
+        weekData.detractorsChange = metrics.detractors - previousWeekMetrics.detractors;
+        weekData.neutralsChange = metrics.neutrals - previousWeekMetrics.neutrals;
+      }
+      
+      result.push(weekData);
+      previousWeekMetrics = { nps, detractors: metrics.detractors, neutrals: metrics.neutrals };
+    });
+
+    return result;
+
+  } catch (e) {
+    Logger.log(`Erro em getNpsTimelineData: ${e.stack}`);
+    return { error: e.message };
+  }
+}
+
 
 // ==================================================================
 // === FUNÇÕES EXISTENTES (NPS, GEMINI, ETC) - SEM ALTERAÇÕES ABAIXO ===
@@ -647,7 +751,7 @@ function getUniqueValidRows(dados, idIndex, classIndex) {
   const validClassifications = ['promotor', 'detrator', 'neutro'];
   for (let i = dados.length - 1; i >= 0; i--) {
     const linha = dados[i];
-    const pedidoId = linha[idIndex]?.trim();
+    const pedidoId = linha[idIndex]?.toString().trim(); // CORREÇÃO APLICADA AQUI
     const classificacao = linha[classIndex]?.toString().toLowerCase();
     if (pedidoId && validClassifications.includes(classificacao)) {
       if (!pedidosProcessados.has(pedidoId)) {
@@ -903,3 +1007,4 @@ function getDetractorSupportDetails(dateRange, reasons) {
   });
   return details;
 }
+
