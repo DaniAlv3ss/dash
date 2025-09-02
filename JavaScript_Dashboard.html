@@ -54,6 +54,9 @@
                     }
                 });
             });
+
+            // Ativa o novo gráfico de timeline
+            initializeNpsTimeline();
         });
     }
 
@@ -691,5 +694,211 @@
         exportToCsv('detratores_suporte.csv', [headers, ...dataToExport]);
     }
 
+    // --- LÓGICA PARA O NOVO GRÁFICO DE TIMELINE DE PERFORMANCE ---
+
+    function initializeNpsTimeline() {
+        // Configura o filtro de data padrão (últimas 4 semanas)
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - 28);
+        
+        document.getElementById('timeline-endDate').value = endDate.toISOString().split('T')[0];
+        document.getElementById('timeline-startDate').value = startDate.toISOString().split('T')[0];
+        updateTimelineDateDisplay();
+
+        // Adiciona os event listeners para o novo filtro de data
+        document.getElementById('timeline-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'timeline-date-range-popup'));
+        document.getElementById('timeline-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'timeline-date-range-popup'));
+        document.getElementById('timeline-applyButton').addEventListener('click', fetchAndRenderTimeline);
+        
+        // Busca os dados iniciais
+        fetchAndRenderTimeline();
+    }
+
+    function updateTimelineDateDisplay() {
+        const startDate = new Date(document.getElementById('timeline-startDate').value.replace(/-/g, '/'));
+        const endDate = new Date(document.getElementById('timeline-endDate').value.replace(/-/g, '/'));
+        const options = { day: '2-digit', month: 'short' };
+        document.getElementById('timeline-date-range-display').textContent = `${startDate.toLocaleDateString('pt-BR', options)} - ${endDate.toLocaleDateString('pt-BR', options)}`;
+    }
+
+    function fetchAndRenderTimeline() {
+        document.getElementById('timeline-date-range-popup').classList.remove('show');
+        updateTimelineDateDisplay();
+
+        document.getElementById('nps-timeline-loader').style.display = 'block';
+        document.getElementById('nps-timeline-container').style.display = 'none';
+
+        const dateRange = {
+            start: document.getElementById('timeline-startDate').value,
+            end: document.getElementById('timeline-endDate').value
+        };
+
+        google.script.run
+            .withSuccessHandler(renderNpsTimeline)
+            .withFailureHandler(error => {
+                document.getElementById('nps-timeline-loader').innerHTML = `<p class="text-red-500">Erro ao carregar dados: ${error.message}</p>`;
+            })
+            .getNpsTimelineData(dateRange);
+    }
+
+    function renderNpsTimeline(data) {
+        if (data.error || !data || data.length < 2) { // Precisa de pelo menos 2 pontos para desenhar uma linha
+            document.getElementById('nps-timeline-loader').innerHTML = '<p class="text-slate-500">Dados insuficientes para gerar o gráfico no período selecionado.</p>';
+            document.getElementById('nps-timeline-container').style.display = 'none';
+            document.getElementById('nps-timeline-loader').style.display = 'block';
+            return;
+        }
+
+        document.getElementById('nps-timeline-loader').style.display = 'none';
+        const container = document.getElementById('nps-timeline-container');
+        container.style.display = 'block';
+        container.innerHTML = '';
+        container.style.position = 'relative'; 
+
+        const width = container.clientWidth;
+        const height = 300; 
+        const chartHeight = 150; 
+        const padding = 20;
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', width);
+        svg.setAttribute('height', chartHeight);
+        svg.setAttribute('viewBox', `0 0 ${width} ${chartHeight}`);
+        svg.style.overflow = 'visible';
+
+        // --- Cálculos de Escala e Pontos ---
+        const npsValues = data.map(d => d.nps);
+        const minNps = Math.min(...npsValues);
+        const maxNps = Math.max(...npsValues);
+        const range = (maxNps - minNps) === 0 ? 10 : (maxNps - minNps) * 1.2; // Adiciona 20% de margem
+        const scaleMin = minNps - (range * 0.1);
+
+        const points = data.map((d, i) => {
+            const x = padding + i * ((width - padding * 2) / (data.length - 1));
+            const y = chartHeight - padding - (((d.nps - scaleMin) / range) * (chartHeight - padding * 2));
+            return { x, y, data: d };
+        });
+
+        // --- Desenho SVG ---
+        // Gradiente
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+        gradient.setAttribute('id', 'area-gradient');
+        gradient.setAttribute('x1', '0%');
+        gradient.setAttribute('y1', '0%');
+        gradient.setAttribute('x2', '0%');
+        gradient.setAttribute('y2', '100%');
+        gradient.innerHTML = `
+            <stop offset="0%" style="stop-color:rgba(79, 127, 232, 0.2)" />
+            <stop offset="100%" style="stop-color:rgba(79, 127, 232, 0)" />
+        `;
+        defs.appendChild(gradient);
+        svg.appendChild(defs);
+
+        // Caminho da Área
+        const areaPathData = "M" + points.map(p => `${p.x},${p.y}`).join(" L ") + ` L ${points[points.length-1].x},${chartHeight} L ${points[0].x},${chartHeight} Z`;
+        const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        areaPath.setAttribute('d', areaPathData);
+        areaPath.setAttribute('fill', 'url(#area-gradient)');
+        svg.appendChild(areaPath);
+
+        // Caminho da Linha
+        const linePathData = "M" + points.map(p => `${p.x},${p.y}`).join(" L ");
+        const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        linePath.setAttribute('d', linePathData);
+        linePath.setAttribute('stroke', '#4F7FE8');
+        linePath.setAttribute('stroke-width', '2.5');
+        linePath.setAttribute('fill', 'none');
+        svg.appendChild(linePath);
+        
+        container.appendChild(svg);
+
+        // --- Elementos HTML (Pontos, Textos, Bolhas) ---
+        const htmlOverlay = document.createElement('div');
+        htmlOverlay.style.position = 'absolute';
+        htmlOverlay.style.top = '0';
+        htmlOverlay.style.left = '0';
+        htmlOverlay.style.width = '100%';
+        htmlOverlay.style.height = `${chartHeight}px`;
+
+        // Pontos e textos NPS
+        points.forEach(p => {
+            // Ponto
+            const circle = document.createElement('div');
+            circle.className = 'absolute rounded-full';
+            circle.style.width = '12px';
+            circle.style.height = '12px';
+            circle.style.backgroundColor = '#4F7FE8';
+            circle.style.border = '2px solid white';
+            circle.style.left = `${p.x}px`;
+            circle.style.top = `${p.y}px`;
+            circle.style.transform = 'translate(-50%, -50%)';
+            htmlOverlay.appendChild(circle);
+            // Texto NPS
+            const text = document.createElement('div');
+            text.className = 'absolute text-sm font-bold text-slate-700';
+            text.textContent = p.data.nps.toFixed(1);
+            text.style.left = `${p.x}px`;
+            text.style.top = `${p.y - 24}px`; // 24px acima do ponto
+            text.style.transform = 'translateX(-50%)';
+            htmlOverlay.appendChild(text);
+        });
+
+        // Bolhas de variação
+        for (let i = 1; i < points.length; i++) {
+            const p1 = points[i-1];
+            const p2 = points[i];
+            const midX = p1.x + (p2.x - p1.x) / 2;
+            const midY = p1.y + (p2.y - p1.y) / 2;
+            const npsChange = p2.data.npsChange;
+            
+            const bubble = document.createElement('div');
+            const sign = npsChange >= 0 ? '+' : '';
+            const colorClass = npsChange >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800';
+            bubble.className = `absolute text-xs font-bold px-2 py-0.5 rounded-full ${colorClass}`;
+            bubble.textContent = `${sign}${npsChange.toFixed(1)}`;
+            bubble.style.left = `${midX}px`;
+            bubble.style.top = `${midY}px`;
+            bubble.style.transform = 'translate(-50%, -50%)';
+            bubble.style.boxShadow = '0 0 0 3px white'; // Efeito de contorno branco
+            htmlOverlay.appendChild(bubble);
+        }
+
+        container.appendChild(htmlOverlay);
+        
+        // --- Timeline de Ações ---
+        const timelineContainer = document.createElement('div');
+        timelineContainer.className = 'grid gap-4 mt-4';
+        timelineContainer.style.gridTemplateColumns = `repeat(${data.length}, 1fr)`;
+
+        points.forEach(p => {
+            const week = p.data;
+            const detractorsChangeSign = week.detractorsChange > 0 ? '+' : '';
+            const neutralsChangeSign = week.neutralsChange > 0 ? '+' : '';
+            const detractorsChangeColor = week.detractorsChange > 0 ? 'text-red-500' : 'text-emerald-500';
+            const neutralsChangeColor = week.neutralsChange > 0 ? 'text-amber-500' : 'text-emerald-500';
+
+            let actionsList = week.actions.map(action => `<li class="text-xs text-slate-600 leading-tight">${action}</li>`).join('');
+
+            const card = document.createElement('div');
+            card.className = 'relative pt-4';
+            card.innerHTML = `
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-slate-200"></div>
+                <div class="bg-slate-50 p-3 rounded-lg text-left shadow-sm">
+                    <p class="font-bold text-sm text-slate-800">${week.weekLabel}</p>
+                    <div class="mt-2 text-xs space-y-1">
+                        <div class="flex justify-between items-center"><span>Detratores: <strong>${week.detractors}</strong></span> <span class="font-semibold ${detractorsChangeColor}">(${detractorsChangeSign}${week.detractorsChange})</span></div>
+                        <div class="flex justify-between items-center"><span>Neutros: <strong>${week.neutrals}</strong></span> <span class="font-semibold ${neutralsChangeColor}">(${neutralsChangeSign}${week.neutralsChange})</span></div>
+                    </div>
+                    ${actionsList ? `<ul class="list-disc list-inside mt-2 border-t border-slate-200 pt-2 space-y-1">${actionsList}</ul>` : ''}
+                </div>
+            `;
+            timelineContainer.appendChild(card);
+        });
+        
+        container.appendChild(timelineContainer);
+    }
 
 </script>
+
