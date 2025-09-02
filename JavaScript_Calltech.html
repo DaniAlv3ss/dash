@@ -150,13 +150,26 @@ function onCalltechDataReceived(data) {
     document.getElementById('kpi-avg-time').textContent = `${data.kpis.avgTime || 0} dias`;
     document.getElementById('kpi-retention-value').textContent = (data.kpis.retentionValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     
-    // Atualiza o novo card de NPS Pós-Atendimento
+    // Atualiza o card de NPS (geral, baseado nos chamados do período)
     const npsFeedback = data.kpis.npsFeedback || { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
     document.getElementById('kpi-nps-total').textContent = npsFeedback.total;
     document.getElementById('kpi-nps-promoters').textContent = npsFeedback.promoters;
     document.getElementById('kpi-nps-neutrals').textContent = npsFeedback.neutrals;
     document.getElementById('kpi-nps-detractors').textContent = npsFeedback.detractors;
 
+    // =================================================================
+    // === CÓDIGO NOVO PARA O CARD DE EFETIVIDADE PÓS-ATENDIMENTO      ===
+    // =================================================================
+    const postServiceNps = data.kpis.postServiceNps || { total: 0, promoters: 0, neutrals: 0, detractors: 0, npsScore: 0.0 };
+
+    document.getElementById('kpi-post-service-nps-score').textContent = (postServiceNps.npsScore || 0).toFixed(1);
+    document.getElementById('kpi-post-service-total').textContent = postServiceNps.total;
+    document.getElementById('kpi-post-service-promoters').textContent = postServiceNps.promoters;
+    document.getElementById('kpi-post-service-neutrals').textContent = postServiceNps.neutrals;
+    document.getElementById('kpi-post-service-detractors').textContent = postServiceNps.detractors;
+    // =================================================================
+    // === FIM DO CÓDIGO NOVO ==========================================
+    // =================================================================
 
     if (data.resolutionRate) {
         updateResolutionRateCard(data.resolutionRate);
@@ -414,4 +427,3 @@ function createHistoryItem(item){
     return contentHtml;
 }
 </script>
-
