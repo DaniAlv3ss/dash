@@ -765,15 +765,42 @@
         const container = document.getElementById('nps-timeline-container');
         container.style.display = 'block';
         container.innerHTML = '';
-        container.style.position = 'relative'; 
+        container.style.position = 'relative';
+
+        // --- INÍCIO: Funções para gerar linha suave (spline) ---
+        const line = (points) => {
+            const controlPoint = (current, previous, next, reverse) => {
+                const p = previous || current;
+                const n = next || current;
+                const smoothing = 0.2;
+                const o = { x: n.x - p.x, y: n.y - p.y };
+                const angle = Math.atan2(o.y, o.x);
+                const length = Math.sqrt(o.x * o.x, o.y * o.y) * smoothing;
+                const x = current.x + Math.cos(angle) * (reverse ? -1 : 1) * length;
+                const y = current.y + Math.sin(angle) * (reverse ? -1 : 1) * length;
+                return [x, y];
+            };
+            const lineCommand = (point, i, a) => {
+                const [cpsX, cpsY] = controlPoint(a[i - 1], a[i - 2], point);
+                const [cpeX, cpeY] = controlPoint(point, a[i - 1], a[i + 1], true);
+                return `C ${cpsX},${cpsY} ${cpeX},${cpeY} ${point.x},${point.y}`;
+            };
+            return points.reduce((acc, point, i, a) => 
+                i === 0 ? `M ${point.x},${point.y}` : `${acc} ${lineCommand(point, i, a)}`, '');
+        };
+        // --- FIM: Funções para gerar linha suave ---
 
         const width = container.clientWidth;
-        const chartHeight = 150; 
-        const padding = 60; // Padding ajustado para garantir que os cards não cortem nas bordas
+        const chartHeight = 300; // AUMENTADO: Mais altura para o gráfico
+        const cardsBottomHeight = 140; // Espaço reservado para os cards de detalhes da semana
+        const totalHeight = chartHeight + cardsBottomHeight;
+        container.style.height = `${totalHeight}px`; // Define a altura total do contêiner
+
+        const padding = 60; 
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', width);
-        svg.setAttribute('height', chartHeight);
+        svg.setAttribute('height', chartHeight); // SVG ocupa apenas a parte do gráfico
         svg.setAttribute('viewBox', `0 0 ${width} ${chartHeight}`);
         svg.style.overflow = 'visible';
 
@@ -781,8 +808,9 @@
         const npsValues = data.map(d => d.nps);
         const minNps = Math.min(...npsValues);
         const maxNps = Math.max(...npsValues);
-        const range = (maxNps - minNps) === 0 ? 10 : (maxNps - minNps) * 1.2; // Adiciona 20% de margem
-        const scaleMin = minNps - (range * 0.1);
+        // AJUSTADO: Aumenta a margem para dar mais "ar" ao gráfico, o que acentua as curvas
+        const range = (maxNps - minNps) === 0 ? 10 : (maxNps - minNps) * 1.4; 
+        const scaleMin = minNps - (range * 0.2); // Centraliza a margem
 
         const points = data.map((d, i) => {
             const x = padding + i * ((width - padding * 2) / (data.length - 1));
@@ -791,7 +819,6 @@
         });
 
         // --- Desenho SVG ---
-        // Gradiente
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
         const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
         gradient.setAttribute('id', 'area-gradient');
@@ -806,15 +833,14 @@
         defs.appendChild(gradient);
         svg.appendChild(defs);
 
-        // Caminho da Área
-        const areaPathData = "M" + points.map(p => `${p.x},${p.y}`).join(" L ") + ` L ${points[points.length-1].x},${chartHeight} L ${points[0].x},${chartHeight} Z`;
+        const linePathData = line(points);
+        const areaPathData = linePathData + ` L ${points[points.length-1].x},${chartHeight} L ${points[0].x},${chartHeight} Z`;
+
         const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         areaPath.setAttribute('d', areaPathData);
         areaPath.setAttribute('fill', 'url(#area-gradient)');
         svg.appendChild(areaPath);
 
-        // Caminho da Linha
-        const linePathData = "M" + points.map(p => `${p.x},${p.y}`).join(" L ");
         const linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         linePath.setAttribute('d', linePathData);
         linePath.setAttribute('stroke', '#4F7FE8');
@@ -830,13 +856,12 @@
         htmlOverlay.style.top = '0';
         htmlOverlay.style.left = '0';
         htmlOverlay.style.width = '100%';
-        htmlOverlay.style.height = `${chartHeight + 150}px`; // Altura para conter o gráfico e os cards
-        htmlOverlay.style.pointerEvents = 'none'; // Desabilita eventos para não interferir no SVG
+        htmlOverlay.style.height = `${totalHeight}px`; // Overlay ocupa a altura total
+        htmlOverlay.style.pointerEvents = 'none';
 
         points.forEach(p => {
             const week = p.data;
             
-            // Ponto
             const circle = document.createElement('div');
             circle.className = 'absolute rounded-full';
             circle.style.width = '12px';
@@ -848,7 +873,6 @@
             circle.style.transform = 'translate(-50%, -50%)';
             htmlOverlay.appendChild(circle);
 
-            // Texto NPS
             const text = document.createElement('div');
             text.className = 'absolute text-sm font-bold text-slate-700';
             text.textContent = week.nps.toFixed(1);
@@ -857,7 +881,10 @@
             text.style.transform = 'translateX(-50%)';
             htmlOverlay.appendChild(text);
             
-            // Card de detalhes
+            // ADICIONADO: Recalcula a label da semana no cliente para garantir a data correta (Domingo)
+            const weekDate = new Date(week.weekKey.replace(/-/g, '/'));
+            const formattedWeekLabel = `Semana de ${weekDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}`;
+
             const detractorsChangeSign = week.detractorsChange > 0 ? '+' : '';
             const neutralsChangeSign = week.neutralsChange > 0 ? '+' : '';
             const detractorsChangeColor = week.detractorsChange > 0 ? 'text-red-500' : 'text-emerald-500';
@@ -865,16 +892,16 @@
             
             const card = document.createElement('div');
             card.className = 'absolute';
-            card.style.top = `${chartHeight + 12}px`; // Posição abaixo do gráfico
+            card.style.top = `${chartHeight + 20}px`; // Posição abaixo do gráfico
             card.style.left = `${p.x}px`;
             card.style.transform = 'translateX(-50%)';
-            card.style.width = '110px'; // Largura fixa
-            card.style.pointerEvents = 'auto'; // Habilita eventos para o card
+            card.style.width = '110px';
+            card.style.pointerEvents = 'auto';
             
             card.innerHTML = `
                 <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-slate-200"></div>
                 <div class="bg-slate-50 p-2 rounded-lg text-left shadow-sm w-full">
-                    <p class="font-bold text-xs text-slate-800 text-center">${week.weekLabel}</p>
+                    <p class="font-bold text-xs text-slate-800 text-center">${formattedWeekLabel}</p>
                     <div class="mt-1 text-xs space-y-0.5">
                         <div class="flex justify-between items-center"><span>Det: <strong>${week.detractors}</strong></span> <span class="font-semibold ${detractorsChangeColor}">(${detractorsChangeSign}${week.detractorsChange})</span></div>
                         <div class="flex justify-between items-center"><span>Neu: <strong>${week.neutrals}</strong></span> <span class="font-semibold ${neutralsChangeColor}">(${neutralsChangeSign}${week.neutralsChange})</span></div>
@@ -884,7 +911,6 @@
             htmlOverlay.appendChild(card);
         });
 
-        // Bolhas de variação (desenhadas por último para ficarem por cima)
         for (let i = 1; i < points.length; i++) {
             const p1 = points[i-1];
             const p2 = points[i];
@@ -910,12 +936,17 @@
     // NOVA FUNÇÃO para renderizar a timeline de ações horizontal
     function renderRecentActions(actions) {
         const container = document.getElementById('recent-actions-container');
+        const parentCard = document.getElementById('actions-timeline-card');
+
         if (actions.error || !actions || actions.length === 0) {
-            container.style.display = 'none';
+            if (container) container.style.display = 'none';
+            if (parentCard) parentCard.style.display = 'none'; // Esconde o card pai
             return;
         }
 
-        container.style.display = 'block';
+        if (parentCard) parentCard.style.display = 'block'; // Garante que o card pai está visível
+        if (container) container.style.display = 'block';
+        
         container.innerHTML = ''; // Limpa conteúdo anterior
 
         const title = document.createElement('h3');
@@ -954,3 +985,4 @@
     }
 
 </script>
+
