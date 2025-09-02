@@ -534,12 +534,9 @@ function getNpsTimelineData(dateRange) {
       throw new Error("Aba de NPS ou de Ações não encontrada.");
     }
 
-    // Pega todos os dados de NPS e Ações
     const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getValues();
-    // ATUALIZADO: Lendo até a coluna G (7 colunas no total) para pegar a data da ação
     const dadosAcoes = abaAcoes.getRange(2, 1, abaAcoes.getLastRow() - 1, 7).getValues(); 
 
-    // Filtra os dados de NPS pelo range de data solicitado
     const dadosFiltrados = todosDadosNPS.filter(linha => {
       const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
       if (!dataAvaliacao || !(dataAvaliacao instanceof Date)) return false;
@@ -553,14 +550,23 @@ function getNpsTimelineData(dateRange) {
     const weeklyMetrics = {};
     dadosUnicos.forEach(linha => {
       const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
-      const date = new Date(dataAvaliacao);
-      
-      // Chave da semana (baseada no domingo daquela semana)
-      const firstDayOfWeek = new Date(date.setDate(date.getDate() - date.getDay()));
-      const key = Utilities.formatDate(firstDayOfWeek, "GMT-3", "yyyy-MM-dd");
+      if (!dataAvaliacao || !(dataAvaliacao instanceof Date)) return;
+
+      // Força a data a ser tratada como UTC para evitar problemas de fuso horário
+      const year = dataAvaliacao.getFullYear();
+      const month = dataAvaliacao.getMonth();
+      const day = dataAvaliacao.getDate();
+      const utcDate = new Date(Date.UTC(year, month, day));
+
+      // getUTCDay() retorna 0 para Domingo, 1 para Segunda...
+      const dayOfWeek = utcDate.getUTCDay();
+      utcDate.setUTCDate(utcDate.getUTCDate() - dayOfWeek);
+
+      // A chave da semana é a data do Domingo, formatada em UTC.
+      const key = Utilities.formatDate(utcDate, "UTC", "yyyy-MM-dd");
 
       if (!weeklyMetrics[key]) {
-        weeklyMetrics[key] = { promoters: 0, neutrals: 0, detractors: 0, endDate: new Date(firstDayOfWeek.getTime() + 6 * 24 * 60 * 60 * 1000) };
+        weeklyMetrics[key] = { promoters: 0, neutrals: 0, detractors: 0 };
       }
 
       const classificacao = linha[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
@@ -572,13 +578,17 @@ function getNpsTimelineData(dateRange) {
     // Processa as ações e as associa a cada semana
     const actionsByWeek = {};
     dadosAcoes.forEach(acao => {
-        // ATUALIZADO: Usando Coluna B (índice 1) para o texto e Coluna G (índice 6) para a data.
         const acaoTexto = acao[1]; 
         const acaoData = acao[6]; 
         if (acaoTexto && acaoData instanceof Date) {
-            const date = new Date(acaoData);
-            const firstDayOfWeek = new Date(date.setDate(date.getDate() - date.getDay()));
-            const key = Utilities.formatDate(firstDayOfWeek, "GMT-3", "yyyy-MM-dd");
+            // Usa a mesma lógica UTC para as ações para garantir consistência
+            const year = acaoData.getFullYear();
+            const month = acaoData.getMonth();
+            const day = acaoData.getDate();
+            const utcDate = new Date(Date.UTC(year, month, day));
+            const dayOfWeek = utcDate.getUTCDay();
+            utcDate.setUTCDate(utcDate.getUTCDate() - dayOfWeek);
+            const key = Utilities.formatDate(utcDate, "UTC", "yyyy-MM-dd");
             
              if (!actionsByWeek[key]) {
                 actionsByWeek[key] = [];
@@ -597,8 +607,10 @@ function getNpsTimelineData(dateRange) {
       const total = metrics.promoters + metrics.neutrals + metrics.detractors;
       const nps = total > 0 ? parseFloat((((metrics.promoters - metrics.detractors) / total) * 100).toFixed(1)) : 0;
       
+      const weekDate = new Date(key);
       const weekData = {
-        weekLabel: `Semana de ${Utilities.formatDate(new Date(key), "GMT-3", "dd/MM")}`,
+        weekKey: key, // Chave da data correta (Domingo) para o front-end
+        weekLabel: `Semana de ${Utilities.formatDate(weekDate, "UTC", "dd/MM")}`, // Label formatada em UTC
         nps: nps,
         detractors: metrics.detractors,
         neutrals: metrics.neutrals,
