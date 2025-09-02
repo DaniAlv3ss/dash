@@ -286,7 +286,9 @@ function getCalltechData(dateRange) {
     const resolutionCounts = { day0: 0, day1: 0, day2: 0, day3: 0, day4plus: 0 };
     const tickets = [];
     const npsFeedback = { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
-    const ticketPedidoIds = new Set(); // Para evitar contar NPS para múltiplos chamados do mesmo pedido
+    const postServiceNps = { total: 0, promoters: 0, neutrals: 0, detractors: 0 }; // KPI NOVO
+    const ticketPedidoIds = new Set();
+    const closedTicketPedidoIds = new Set(); // Controle para o KPI novo
 
 
     allManagerData.forEach((row, index) => {
@@ -345,7 +347,7 @@ function getCalltechData(dateRange) {
             hasNps: npsMap.has(pedidoId) // Adiciona a flag se o pedido tem NPS
           });
 
-          // Processa o feedback NPS para este pedido apenas uma vez
+          // Processa o feedback NPS geral (baseado em chamados ABERTOS no período)
           if (pedidoId && !ticketPedidoIds.has(pedidoId)) {
               if (npsMap.has(pedidoId)) {
                   const classification = npsMap.get(pedidoId);
@@ -355,6 +357,18 @@ function getCalltechData(dateRange) {
                   else if (classification === 'detrator') npsFeedback.detractors++;
               }
               ticketPedidoIds.add(pedidoId);
+          }
+
+          // NOVO: Processa o feedback NPS Pós-Atendimento (apenas para chamados FINALIZADOS)
+          if (isClosed && pedidoId && !closedTicketPedidoIds.has(pedidoId)) {
+            if (npsMap.has(pedidoId)) {
+              const classification = npsMap.get(pedidoId);
+              postServiceNps.total++;
+              if (classification === 'promotor') postServiceNps.promoters++;
+              else if (classification === 'neutro') postServiceNps.neutrals++;
+              else if (classification === 'detrator') postServiceNps.detractors++;
+            }
+            closedTicketPedidoIds.add(pedidoId);
           }
         }
       } catch (e) {
@@ -370,6 +384,12 @@ function getCalltechData(dateRange) {
       const percentage = resolvedTicketsCount > 0 ? (count / resolvedTicketsCount) * 100 : 0;
       resolutionRate[day] = { count: count, percentage: percentage };
     }
+    
+    // NOVO: Calcular o NPS Score para o novo KPI
+    const postServiceNpsScore = postServiceNps.total > 0 
+      ? parseFloat((((postServiceNps.promoters - postServiceNps.detractors) / postServiceNps.total) * 100).toFixed(1)) 
+      : 0;
+    postServiceNps.npsScore = postServiceNpsScore;
 
     // --- Processamento para KPI de Retenção ---
     const allAtendimentoData = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
@@ -412,7 +432,8 @@ function getCalltechData(dateRange) {
         closed: closedTickets,
         avgTime: avgResolutionTime,
         retentionValue: retentionValue,
-        npsFeedback: npsFeedback
+        npsFeedback: npsFeedback,
+        postServiceNps: postServiceNps // NOVO KPI ADICIONADO
       },
       resolutionRate: resolutionRate
     };
@@ -420,7 +441,7 @@ function getCalltechData(dateRange) {
     Logger.log(`Erro fatal na função getCalltechData: ${e.stack}`);
     return { 
       tickets: [], 
-      kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0, npsFeedback: { total: 0, promoters: 0, neutrals: 0, detractors: 0 } },
+      kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0, npsFeedback: { total: 0, promoters: 0, neutrals: 0, detractors: 0 }, postServiceNps: { total: 0, promoters: 0, neutrals: 0, detractors: 0, npsScore: 0 } },
       resolutionRate: {}
     };
   }
@@ -882,4 +903,3 @@ function getDetractorSupportDetails(dateRange, reasons) {
   });
   return details;
 }
-
