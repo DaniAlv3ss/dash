@@ -148,6 +148,17 @@
         } else {
             document.getElementById('word-analysis-section').style.display = 'none';
         }
+        
+        // NOVA CHAMADA para buscar e renderizar a timeline de ações recentes
+        google.script.run
+            .withSuccessHandler(renderRecentActions)
+            .withFailureHandler(error => {
+                console.error("Erro ao buscar ações recentes:", error);
+                const container = document.getElementById('recent-actions-container');
+                container.style.display = 'block';
+                container.innerHTML = `<p class="text-red-500">Erro ao carregar a timeline de ações.</p>`;
+            })
+            .getRecentActions();
     }
 
     function onEvolutionDataReceived(data) {
@@ -266,7 +277,7 @@
             annotations: { alwaysOutside: true, textStyle: { fontSize: 11, color: '#555', auraColor: 'none' }, stem: { color: 'transparent' } },
             series: { 4: { type: 'line', color: '#00529e', targetAxisIndex: 1, lineWidth: 3, pointSize: 5, annotations: { textStyle: { fontSize: 12, color: '#00529e', bold: true, auraColor: '#fff' }, stem: { color: 'transparent' } } } },
             hAxis: { title: currentEvolutionView === 'month' ? 'Mês' : 'Semana', textStyle: { fontSize: 12 } },
-            vAxes: { 0: { title: 'Total de Respostas', viewWindow: { min: 0 }, gridlines: { color: '#f0f0f0' } }, 1: { title: 'NPS', viewWindow: { min: 0, max: 100 }, gridlines: { color: 'transparent' } } },
+            vAxes: { 0: { title: 'Total de Respostas', viewWindow: { min: 0 }, gridlines: { color: '#f0f0f0' } }, 1: { title: 'NPS', gridlines: { color: 'transparent' } } },
             colors: ['#ff6000', '#34a853', '#ea4335', '#fbbc04'],
             chartArea: { left: 80, top: 60, width: '85%', height: '65%' }
         };
@@ -757,9 +768,8 @@
         container.style.position = 'relative'; 
 
         const width = container.clientWidth;
-        const height = 300; 
         const chartHeight = 150; 
-        const padding = 20;
+        const padding = 60; // Padding ajustado para garantir que os cards não cortem nas bordas
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', width);
@@ -814,16 +824,18 @@
         
         container.appendChild(svg);
 
-        // --- Elementos HTML (Pontos, Textos, Bolhas) ---
+        // --- Elementos HTML (Pontos, Textos, Bolhas e Cards) ---
         const htmlOverlay = document.createElement('div');
         htmlOverlay.style.position = 'absolute';
         htmlOverlay.style.top = '0';
         htmlOverlay.style.left = '0';
         htmlOverlay.style.width = '100%';
-        htmlOverlay.style.height = `${chartHeight}px`;
+        htmlOverlay.style.height = `${chartHeight + 150}px`; // Altura para conter o gráfico e os cards
+        htmlOverlay.style.pointerEvents = 'none'; // Desabilita eventos para não interferir no SVG
 
-        // Pontos e textos NPS
         points.forEach(p => {
+            const week = p.data;
+            
             // Ponto
             const circle = document.createElement('div');
             circle.className = 'absolute rounded-full';
@@ -835,17 +847,44 @@
             circle.style.top = `${p.y}px`;
             circle.style.transform = 'translate(-50%, -50%)';
             htmlOverlay.appendChild(circle);
+
             // Texto NPS
             const text = document.createElement('div');
             text.className = 'absolute text-sm font-bold text-slate-700';
-            text.textContent = p.data.nps.toFixed(1);
+            text.textContent = week.nps.toFixed(1);
             text.style.left = `${p.x}px`;
-            text.style.top = `${p.y - 24}px`; // 24px acima do ponto
+            text.style.top = `${p.y - 24}px`; 
             text.style.transform = 'translateX(-50%)';
             htmlOverlay.appendChild(text);
+            
+            // Card de detalhes
+            const detractorsChangeSign = week.detractorsChange > 0 ? '+' : '';
+            const neutralsChangeSign = week.neutralsChange > 0 ? '+' : '';
+            const detractorsChangeColor = week.detractorsChange > 0 ? 'text-red-500' : 'text-emerald-500';
+            const neutralsChangeColor = week.neutralsChange > 0 ? 'text-amber-500' : 'text-emerald-500';
+            
+            const card = document.createElement('div');
+            card.className = 'absolute';
+            card.style.top = `${chartHeight + 12}px`; // Posição abaixo do gráfico
+            card.style.left = `${p.x}px`;
+            card.style.transform = 'translateX(-50%)';
+            card.style.width = '110px'; // Largura fixa
+            card.style.pointerEvents = 'auto'; // Habilita eventos para o card
+            
+            card.innerHTML = `
+                <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-slate-200"></div>
+                <div class="bg-slate-50 p-2 rounded-lg text-left shadow-sm w-full">
+                    <p class="font-bold text-xs text-slate-800 text-center">${week.weekLabel}</p>
+                    <div class="mt-1 text-xs space-y-0.5">
+                        <div class="flex justify-between items-center"><span>Det: <strong>${week.detractors}</strong></span> <span class="font-semibold ${detractorsChangeColor}">(${detractorsChangeSign}${week.detractorsChange})</span></div>
+                        <div class="flex justify-between items-center"><span>Neu: <strong>${week.neutrals}</strong></span> <span class="font-semibold ${neutralsChangeColor}">(${neutralsChangeSign}${week.neutralsChange})</span></div>
+                    </div>
+                </div>
+            `;
+            htmlOverlay.appendChild(card);
         });
 
-        // Bolhas de variação
+        // Bolhas de variação (desenhadas por último para ficarem por cima)
         for (let i = 1; i < points.length; i++) {
             const p1 = points[i-1];
             const p2 = points[i];
@@ -861,44 +900,57 @@
             bubble.style.left = `${midX}px`;
             bubble.style.top = `${midY}px`;
             bubble.style.transform = 'translate(-50%, -50%)';
-            bubble.style.boxShadow = '0 0 0 3px white'; // Efeito de contorno branco
+            bubble.style.boxShadow = '0 0 0 3px white'; 
             htmlOverlay.appendChild(bubble);
         }
 
         container.appendChild(htmlOverlay);
-        
-        // --- Timeline de Ações ---
-        const timelineContainer = document.createElement('div');
-        timelineContainer.className = 'grid gap-4 mt-4';
-        timelineContainer.style.gridTemplateColumns = `repeat(${data.length}, 1fr)`;
+    }
 
-        points.forEach(p => {
-            const week = p.data;
-            const detractorsChangeSign = week.detractorsChange > 0 ? '+' : '';
-            const neutralsChangeSign = week.neutralsChange > 0 ? '+' : '';
-            const detractorsChangeColor = week.detractorsChange > 0 ? 'text-red-500' : 'text-emerald-500';
-            const neutralsChangeColor = week.neutralsChange > 0 ? 'text-amber-500' : 'text-emerald-500';
+    // NOVA FUNÇÃO para renderizar a timeline de ações horizontal
+    function renderRecentActions(actions) {
+        const container = document.getElementById('recent-actions-container');
+        if (actions.error || !actions || actions.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
 
-            let actionsList = week.actions.map(action => `<li class="text-xs text-slate-600 leading-tight">${action}</li>`).join('');
+        container.style.display = 'block';
+        container.innerHTML = ''; // Limpa conteúdo anterior
 
-            const card = document.createElement('div');
-            card.className = 'relative pt-4';
-            card.innerHTML = `
-                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-slate-200"></div>
-                <div class="bg-slate-50 p-3 rounded-lg text-left shadow-sm">
-                    <p class="font-bold text-sm text-slate-800">${week.weekLabel}</p>
-                    <div class="mt-2 text-xs space-y-1">
-                        <div class="flex justify-between items-center"><span>Detratores: <strong>${week.detractors}</strong></span> <span class="font-semibold ${detractorsChangeColor}">(${detractorsChangeSign}${week.detractorsChange})</span></div>
-                        <div class="flex justify-between items-center"><span>Neutros: <strong>${week.neutrals}</strong></span> <span class="font-semibold ${neutralsChangeColor}">(${neutralsChangeSign}${week.neutralsChange})</span></div>
-                    </div>
-                    ${actionsList ? `<ul class="list-disc list-inside mt-2 border-t border-slate-200 pt-2 space-y-1">${actionsList}</ul>` : ''}
-                </div>
+        const title = document.createElement('h3');
+        title.className = 'text-lg font-semibold text-slate-800 mb-4';
+        title.textContent = 'Últimas Ações Implementadas';
+        container.appendChild(title);
+
+        const timeline = document.createElement('div');
+        timeline.className = 'flex items-start w-full justify-center px-4 mt-4';
+
+        actions.forEach((item, index) => {
+            // Adiciona o item (círculo + texto)
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'flex flex-col items-center text-center px-2 flex-shrink-0';
+            itemDiv.style.width = '120px'; // Largura fixa para cada item
+            itemDiv.innerHTML = `
+                <div class="w-4 h-4 bg-white border-2 border-orange-500 rounded-full flex-shrink-0"></div>
+                <p class="mt-2 text-sm font-semibold text-slate-700">${item.acao}</p>
+                <p class="text-xs text-slate-500">${item.data}</p>
             `;
-            timelineContainer.appendChild(card);
+            timeline.appendChild(itemDiv);
+
+            // Adiciona o conector (linha + seta) se não for o último item
+            if (index < actions.length - 1) {
+                const connector = document.createElement('div');
+                connector.className = 'flex-1 flex items-center pt-1.5'; // pt-1.5 para alinhar com o centro do círculo
+                connector.innerHTML = `
+                    <div class="h-1 flex-grow bg-orange-500" style="margin-right: -2px;"></div>
+                    <div style="width: 0; height: 0; border-top: 8px solid transparent; border-bottom: 8px solid transparent; border-left: 12px solid #f97316;"></div>
+                `;
+                timeline.appendChild(connector);
+            }
         });
         
-        container.appendChild(timelineContainer);
+        container.appendChild(timeline);
     }
 
 </script>
-
