@@ -49,6 +49,43 @@
             <h4 class="text-slate-500 font-semibold">Valor Retido no Atendimento</h4>
             <p id="kpi-retention-value" class="text-4xl font-bold text-slate-800 mt-2">R$ 0,00</p>
         </div>
+
+        <!-- INÍCIO: NOVO CARD DE EFETIVIDADE PÓS-ATENDIMENTO -->
+        <div class="bg-white p-6 rounded-xl shadow-sm flex flex-col md:col-span-2 lg:col-span-2">
+            <h4 class="text-slate-500 font-semibold mb-2">Efetividade Pós-Atendimento</h4>
+            <div class="flex flex-grow items-center gap-6">
+                <div class="flex-shrink-0 text-center">
+                    <p id="kpi-post-service-nps-score" class="text-5xl font-bold text-slate-800">0.0</p>
+                    <p class="text-xs text-slate-400 mt-1">NPS Pós-Chamado</p>
+                </div>
+                <div class="flex-grow border-l border-slate-200 pl-6 space-y-2 text-sm">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center">
+                            <span class="h-2.5 w-2.5 rounded-full bg-emerald-500 mr-2"></span>Promotores
+                        </div>
+                        <strong id="kpi-post-service-promoters" class="font-bold text-slate-800">0</strong>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center">
+                            <span class="h-2.5 w-2.5 rounded-full bg-amber-500 mr-2"></span>Neutros
+                        </div>
+                        <strong id="kpi-post-service-neutrals" class="font-bold text-slate-800">0</strong>
+                    </div>
+                    <div class="flex justify-between items-center">
+                       <div class="flex items-center">
+                           <span class="h-2.5 w-2.5 rounded-full bg-red-500 mr-2"></span>Detratores
+                       </div>
+                        <strong id="kpi-post-service-detractors" class="font-bold text-slate-800">0</strong>
+                    </div>
+                    <div class="border-t border-slate-100 mt-2 pt-2 flex justify-between items-center">
+                        <div class="text-slate-500 font-semibold">Base de Respostas</div>
+                        <strong id="kpi-post-service-total" class="font-bold text-slate-800">0</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- FIM: NOVO CARD -->
+
         <div class="bg-white p-6 rounded-xl shadow-sm flex flex-col">
             <h4 class="text-slate-500 font-semibold mb-2">Chamados com NPS</h4>
             <div class="flex flex-grow items-center gap-6">
@@ -217,4 +254,3 @@
         </div>
     </div>
 </div>
-
