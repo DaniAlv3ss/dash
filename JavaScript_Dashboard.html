@@ -1,6 +1,6 @@
 <script>
     // ==================================================================
-    // === LÓGICA DA PÁGINA DE DASHBOARD NPS ============================
+    // === LÓGICA DA PÁGINA DE DASHBOARD NPS (OTIMIZADA) ===============
     // ==================================================================
     let evolutionChart, evolutionData, allRawResponses = [];
     let currentEvolutionView = 'month';
@@ -43,8 +43,8 @@
             document.getElementById('export-comments-btn').addEventListener('click', exportComments);
             document.getElementById('export-support-btn').addEventListener('click', exportSupportDetails);
 
-            fetchMainData();
-            fetchEvolutionData('month');
+            // OTIMIZAÇÃO: Substitui as duas chamadas de fetch por uma única chamada unificada.
+            fetchInitialData();
 
             window.addEventListener('click', function (event) {
                 document.querySelectorAll('.date-popup.show').forEach(popup => {
@@ -58,6 +58,22 @@
             // Ativa o novo gráfico de timeline
             initializeNpsTimeline();
         });
+    }
+
+    // NOVA FUNÇÃO para o carregamento unificado
+    function fetchInitialData() {
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('dashboard-content').style.visibility = 'hidden';
+        google.script.run
+            .withSuccessHandler(onInitialDataReceived)
+            .withFailureHandler(onFailure)
+            .getInitialDashboardAndEvolutionData();
+    }
+
+    // NOVA FUNÇÃO para receber os dados unificados
+    function onInitialDataReceived(initialData) {
+        onMainDataReceived(initialData.mainData);
+        onEvolutionDataReceived(initialData.evolutionData);
     }
 
     function updateDateRangeDisplay(type) {
@@ -148,7 +164,7 @@
         } else {
             document.getElementById('word-analysis-section').style.display = 'none';
         }
-        
+
         // NOVA CHAMADA para buscar e renderizar a timeline de ações recentes
         google.script.run
             .withSuccessHandler(renderRecentActions)
@@ -712,7 +728,7 @@
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(endDate.getDate() - 28);
-        
+
         document.getElementById('timeline-endDate').value = endDate.toISOString().split('T')[0];
         document.getElementById('timeline-startDate').value = startDate.toISOString().split('T')[0];
         updateTimelineDateDisplay();
@@ -721,7 +737,7 @@
         document.getElementById('timeline-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'timeline-date-range-popup'));
         document.getElementById('timeline-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'timeline-date-range-popup'));
         document.getElementById('timeline-applyButton').addEventListener('click', fetchAndRenderTimeline);
-        
+
         // Busca os dados iniciais
         fetchAndRenderTimeline();
     }
@@ -785,7 +801,7 @@
                 const [cpeX, cpeY] = controlPoint(point, a[i - 1], a[i + 1], true);
                 return `C ${cpsX},${cpsY} ${cpeX},${cpeY} ${point.x},${point.y}`;
             };
-            return points.reduce((acc, point, i, a) => 
+            return points.reduce((acc, point, i, a) =>
                 i === 0 ? `M ${point.x},${point.y}` : `${acc} ${lineCommand(point, i, a)}`, '');
         };
         // --- FIM: Funções para gerar linha suave ---
@@ -796,7 +812,7 @@
         const totalHeight = chartHeight + cardsBottomHeight;
         container.style.height = `${totalHeight}px`; // Define a altura total do contêiner
 
-        const padding = 60; 
+        const padding = 60;
 
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', width);
@@ -809,7 +825,7 @@
         const minNps = Math.min(...npsValues);
         const maxNps = Math.max(...npsValues);
         // AJUSTADO: Aumenta a margem para dar mais "ar" ao gráfico, o que acentua as curvas
-        const range = (maxNps - minNps) === 0 ? 10 : (maxNps - minNps) * 1.4; 
+        const range = (maxNps - minNps) === 0 ? 10 : (maxNps - minNps) * 1.4;
         const scaleMin = minNps - (range * 0.2); // Centraliza a margem
 
         const points = data.map((d, i) => {
@@ -847,7 +863,7 @@
         linePath.setAttribute('stroke-width', '2.5');
         linePath.setAttribute('fill', 'none');
         svg.appendChild(linePath);
-        
+
         container.appendChild(svg);
 
         // --- Elementos HTML (Pontos, Textos, Bolhas e Cards) ---
@@ -861,7 +877,7 @@
 
         points.forEach(p => {
             const week = p.data;
-            
+
             const circle = document.createElement('div');
             circle.className = 'absolute rounded-full';
             circle.style.width = '12px';
@@ -877,10 +893,10 @@
             text.className = 'absolute text-sm font-bold text-slate-700';
             text.textContent = week.nps.toFixed(1);
             text.style.left = `${p.x}px`;
-            text.style.top = `${p.y - 24}px`; 
+            text.style.top = `${p.y - 24}px`;
             text.style.transform = 'translateX(-50%)';
             htmlOverlay.appendChild(text);
-            
+
             // ADICIONADO: Recalcula a label da semana no cliente para garantir a data correta (Domingo)
             const weekDate = new Date(week.weekKey.replace(/-/g, '/'));
             const formattedWeekLabel = `Semana de ${weekDate.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}`;
@@ -889,7 +905,7 @@
             const neutralsChangeSign = week.neutralsChange > 0 ? '+' : '';
             const detractorsChangeColor = week.detractorsChange > 0 ? 'text-red-500' : 'text-emerald-500';
             const neutralsChangeColor = week.neutralsChange > 0 ? 'text-amber-500' : 'text-emerald-500';
-            
+
             const card = document.createElement('div');
             card.className = 'absolute';
             card.style.top = `${chartHeight + 20}px`; // Posição abaixo do gráfico
@@ -897,7 +913,7 @@
             card.style.transform = 'translateX(-50%)';
             card.style.width = '110px';
             card.style.pointerEvents = 'auto';
-            
+
             card.innerHTML = `
                 <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-0.5 h-3 bg-slate-200"></div>
                 <div class="bg-slate-50 p-2 rounded-lg text-left shadow-sm w-full">
@@ -917,7 +933,7 @@
             const midX = p1.x + (p2.x - p1.x) / 2;
             const midY = p1.y + (p2.y - p1.y) / 2;
             const npsChange = p2.data.npsChange;
-            
+
             const bubble = document.createElement('div');
             const sign = npsChange >= 0 ? '+' : '';
             const colorClass = npsChange >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800';
@@ -926,7 +942,7 @@
             bubble.style.left = `${midX}px`;
             bubble.style.top = `${midY}px`;
             bubble.style.transform = 'translate(-50%, -50%)';
-            bubble.style.boxShadow = '0 0 0 3px white'; 
+            bubble.style.boxShadow = '0 0 0 3px white';
             htmlOverlay.appendChild(bubble);
         }
 
@@ -946,7 +962,7 @@
 
         if (parentCard) parentCard.style.display = 'block'; // Garante que o card pai está visível
         if (container) container.style.display = 'block';
-        
+
         container.innerHTML = ''; // Limpa conteúdo anterior
 
         const title = document.createElement('h3');
@@ -980,9 +996,8 @@
                 timeline.appendChild(connector);
             }
         });
-        
+
         container.appendChild(timeline);
     }
 
 </script>
-
