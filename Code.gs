@@ -1,6 +1,6 @@
 /**
  * Script para servir um dashboard de NPS como um aplicativo da web.
- * VERSÃO REATORADA: Puxa dados de planilhas separadas por ID e carrega páginas dinamicamente.
+ * VERSÃO OTIMIZADA: Reduz chamadas às planilhas, implementa cache e unifica buscas de dados.
  */
 
 // === CENTRAL DE IDs DAS PLANILHAS ===
@@ -10,7 +10,7 @@ const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
 
 // Constantes para nomes de abas
 const NOME_ABA_NPS = "Avaliações 2025";
-const NOME_ABA_ACOES = "ações 2025"; // O nome da aba está em minúsculas
+const NOME_ABA_ACOES = "ações 2025";
 const NOME_ABA_ATENDIMENTO = "Forms";
 const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager"; // Aba para a nova página Calltech
@@ -28,7 +28,6 @@ const INDICES_NPS = {
   MOTIVO_VISUAL_PC: 43,
   MOTIVO_TRANSPORTE: 47
 };
-
 // Índices de colunas da aba de Atendimento (Forms)
 const INDICES_ATENDIMENTO = {
   PEDIDO_ID: 2,
@@ -40,13 +39,11 @@ const INDICES_ATENDIMENTO = {
   DATA_ATENDIMENTO: 0,
   OS: 14
 };
-
 // Índices de colunas da aba NPS Datas
 const INDICES_OS = {
   PEDIDO_ID: 2,
   OS: 3         // Coluna D
 };
-
 // NOVOS ÍNDICES: Colunas para a aba Pedidos Manager (Calltech)
 const INDICES_CALLTECH = {
   EMAIL: 0,               // Coluna A
@@ -54,11 +51,9 @@ const INDICES_CALLTECH = {
   CHAMADO_ID: 3,          // Coluna D
   DATA_ABERTURA: 6,       // Coluna G
   PEDIDO_ID: 12,            // Coluna M
-  CLIENTE: 14,            // Coluna O
+  CLIENTE: 14,
   DATA_FINALIZACAO: 16    // Coluna Q
 };
-
-
 /**
  * Função principal que serve o "casco" da aplicação (menu e área de conteúdo).
  */
@@ -88,22 +83,51 @@ function include(filename) {
 
 
 /**
+ * NOVA FUNÇÃO OTIMIZADA: Busca os dados para o carregamento inicial do Dashboard de NPS.
+ * Unifica a busca de dados principais e do gráfico de evolução em uma única chamada.
+ */
+function getInitialDashboardAndEvolutionData() {
+  // Define os ranges de data padrão que o cliente usaria no primeiro carregamento
+  const today = new Date();
+  const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const mainDateRange = {
+    start: firstDayMonth.toISOString().split('T')[0],
+    end: today.toISOString().split('T')[0]
+  };
+
+  const firstDayYear = new Date(today.getFullYear(), 0, 1);
+  const evolutionDateRange = {
+    start: firstDayYear.toISOString().split('T')[0],
+    end: today.toISOString().split('T')[0]
+  };
+
+  // Chama as funções existentes internamente no servidor
+  const mainData = getDashboardData(mainDateRange);
+  const evolutionData = getEvolutionChartData(evolutionDateRange, 'month');
+
+  // Retorna um único objeto para o cliente, reduzindo a latência
+  return {
+    mainData: mainData,
+    evolutionData: evolutionData
+  };
+}
+
+
+/**
  * NOVA FUNÇÃO: Busca e consolida os dados de um cliente de múltiplas fontes.
  */
 function getCustomerData(filter) {
   try {
     const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
     const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
-
     const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
     const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
     const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
-
     // Validação de abas
     if (!abaNPS || !abaManager || !abaAtendimento) {
       throw new Error("Uma ou mais abas necessárias não foram encontradas.");
     }
-    
+
     // Usar getDisplayValues() para garantir que as datas sejam strings formatadas.
     const npsData = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
     const managerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
@@ -111,7 +135,6 @@ function getCustomerData(filter) {
 
     const customers = new Map();
     const orderToEmailMap = new Map();
-
     // 1. Processa Pedidos Manager para criar base de clientes e mapear pedidos
     managerData.forEach(row => {
       const email = row[INDICES_CALLTECH.EMAIL]?.toString().trim().toLowerCase();
@@ -123,27 +146,27 @@ function getCustomerData(filter) {
           customers.set(email, { name, email, history: [] });
         }
         if (pedidoId) {
+
           orderToEmailMap.set(pedidoId, email);
         }
       }
     });
-    
     // 2. Processa NPS para complementar base de clientes e mapear pedidos
     npsData.forEach(row => {
       const email = row[INDICES_NPS.EMAIL]?.toString().trim().toLowerCase();
       const name = row[INDICES_NPS.CLIENTE]?.toString().trim();
       const pedidoId = row[INDICES_NPS.PEDIDO_ID]?.toString().trim();
-      
+
       if (email && name) {
         if (!customers.has(email)) {
           customers.set(email, { name, email, history: [] });
         }
+
         if (pedidoId) {
           orderToEmailMap.set(pedidoId, email);
         }
       }
     });
-
     // 3. Filtra os clientes com base no critério (letra ou pesquisa)
     let filteredEmails = new Set();
     const filterType = filter.type;
@@ -156,7 +179,8 @@ function getCustomerData(filter) {
         }
       });
     } else if (filterType === 'search') {
-      if (filterValue.length < 3) return []; // Evita buscas muito amplas
+      if (filterValue.length < 3) return [];
+      // Evita buscas muito amplas
       customers.forEach((customer, email) => {
         if (customer.name.toLowerCase().includes(filterValue) || email.includes(filterValue)) {
           filteredEmails.add(email);
@@ -171,13 +195,12 @@ function getCustomerData(filter) {
     }
 
     if(filteredEmails.size === 0) return [];
-    
+
     // 4. Monta o histórico APENAS para os clientes filtrados
     const results = new Map();
     filteredEmails.forEach(email => {
       results.set(email, customers.get(email));
     });
-
     // Histórico de NPS
     npsData.forEach(row => {
       const email = row[INDICES_NPS.EMAIL]?.toString().trim().toLowerCase();
@@ -187,12 +210,12 @@ function getCustomerData(filter) {
            type: 'NPS',
            date: new Date(dateStr.split(' ')[0]), // Formato da planilha é YYYY-MM-DD
            pedidoId: row[INDICES_NPS.PEDIDO_ID],
-           classificacao: row[INDICES_NPS.CLASSIFICACAO],
+           classificacao:
+row[INDICES_NPS.CLASSIFICACAO],
            comentario: row[INDICES_NPS.COMENTARIO]
          });
       }
     });
-
     // Histórico de Chamados (Manager)
     managerData.forEach(row => {
       const email = row[INDICES_CALLTECH.EMAIL]?.toString().trim().toLowerCase();
@@ -203,12 +226,12 @@ function getCustomerData(filter) {
            date: new Date(dateStr.split(' ')[0].split('/').reverse().join('-')),
            chamadoId: row[INDICES_CALLTECH.CHAMADO_ID],
            pedidoId: row[INDICES_CALLTECH.PEDIDO_ID],
+
            status: row[INDICES_CALLTECH.STATUS],
            dataFinalizacao: row[INDICES_CALLTECH.DATA_FINALIZACAO]
          });
       }
     });
-    
     // Histórico de Atendimentos (Forms)
     atendimentoData.forEach(row => {
       const pedidoId = row[INDICES_ATENDIMENTO.PEDIDO_ID]?.toString().trim();
@@ -219,13 +242,13 @@ function getCustomerData(filter) {
            type: 'Atendimento',
            date: new Date(dateStr.split(' ')[0].split('/').reverse().join('-')),
            pedidoId: pedidoId,
+
            resolucao: row[INDICES_ATENDIMENTO.RESOLUCAO],
            defeito: row[INDICES_ATENDIMENTO.DEFEITO],
            relato: row[INDICES_ATENDIMENTO.RELATO_CLIENTE]
          });
       }
     });
-
     // 5. Finaliza e formata o retorno
     const finalResults = Array.from(results.values());
     finalResults.forEach(customer => {
@@ -236,11 +259,11 @@ function getCustomerData(filter) {
         if (item.date instanceof Date && !isNaN(item.date)) {
            item.date = item.date.toISOString();
         } else {
+
            item.date = null; // Data inválida
         }
       });
     });
-
     return finalResults.sort((a,b) => a.name.localeCompare(b.name));
 
   } catch (e) {
@@ -259,15 +282,12 @@ function getCalltechData(dateRange) {
   try {
     const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
     const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
-    const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO); 
+    const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
     const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
     const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
-
     if (!abaManager || !abaAtendimento || !abaNPS) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
-
     const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
     const allNPSData = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
-
     // Cria um mapa de Pedido ID para classificação NPS para consulta rápida
     const npsMap = new Map();
     const uniqueNPSRows = getUniqueValidRows(allNPSData, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
@@ -278,7 +298,6 @@ function getCalltechData(dateRange) {
             npsMap.set(pedidoId, classification);
         }
     });
-
     // --- Processamento para KPIs e Tabela ---
     let openTickets = 0;
     let closedTickets = 0;
@@ -287,24 +306,27 @@ function getCalltechData(dateRange) {
     const resolutionCounts = { day0: 0, day1: 0, day2: 0, day3: 0, day4plus: 0 };
     const tickets = [];
     const npsFeedback = { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
-    const postServiceNps = { total: 0, promoters: 0, neutrals: 0, detractors: 0 }; // KPI NOVO
+    const postServiceNps = { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
+    // KPI NOVO
     const ticketPedidoIds = new Set();
-    const closedTicketPedidoIds = new Set(); // Controle para o KPI novo
+    const closedTicketPedidoIds = new Set();
+    // Controle para o KPI novo
 
 
     allManagerData.forEach((row, index) => {
       const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
       const chamadoId = row[INDICES_CALLTECH.CHAMADO_ID];
 
-      if (!chamadoId || !openDateStr) return; 
+      if (!chamadoId || !openDateStr) return;
 
       try {
         const dateParts = openDateStr.split(' ')[0].split('/');
         if (dateParts.length !== 3) throw new Error(`Formato de data inválido: ${openDateStr}`);
         const [day, month, year] = dateParts;
-        const openDate = new Date(year, month - 1, day);
+        const
+openDate = new Date(year, month - 1, day);
         if (isNaN(openDate.getTime())) throw new Error(`Data inválida: ${openDateStr}`);
-        
+
         const openDateISO = openDate.toISOString().split('T')[0];
 
         if (openDateISO >= dateRange.start && openDateISO <= dateRange.end) {
@@ -324,7 +346,6 @@ function getCalltechData(dateRange) {
                   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                   totalResolutionTime += diffDays;
                   resolvedTicketsCount++;
-                  
                   if (diffDays === 0) resolutionCounts.day0++;
                   else if (diffDays === 1) resolutionCounts.day1++;
                   else if (diffDays === 2) resolutionCounts.day2++;
@@ -344,10 +365,10 @@ function getCalltechData(dateRange) {
             pedidoId: pedidoId,
             cliente: row[INDICES_CALLTECH.CLIENTE],
             dataFinalizacao: closeDateStr ? closeDateStr.split(' ')[0] : '',
+
             email: row[INDICES_CALLTECH.EMAIL],
             hasNps: npsMap.has(pedidoId) // Adiciona a flag se o pedido tem NPS
           });
-
           // Processa o feedback NPS geral (baseado em chamados ABERTOS no período)
           if (pedidoId && !ticketPedidoIds.has(pedidoId)) {
               if (npsMap.has(pedidoId)) {
@@ -376,27 +397,25 @@ function getCalltechData(dateRange) {
         Logger.log(`Erro ao processar linha ${index + 2} da planilha Manager: ${e.message}. Dados da linha: ${row.join(', ')}`);
       }
     });
-    
+
     const avgResolutionTime = resolvedTicketsCount > 0 ? (totalResolutionTime / resolvedTicketsCount).toFixed(1) : 0;
-    
     const resolutionRate = {};
     for (const day in resolutionCounts) {
       const count = resolutionCounts[day];
       const percentage = resolvedTicketsCount > 0 ? (count / resolvedTicketsCount) * 100 : 0;
       resolutionRate[day] = { count: count, percentage: percentage };
     }
-    
+
     // NOVO: Calcular o NPS Score para o novo KPI
-    const postServiceNpsScore = postServiceNps.total > 0 
-      ? parseFloat((((postServiceNps.promoters - postServiceNps.detractors) / postServiceNps.total) * 100).toFixed(1)) 
+    const postServiceNpsScore = postServiceNps.total > 0
+      ?
+      parseFloat((((postServiceNps.promoters - postServiceNps.detractors) / postServiceNps.total) * 100).toFixed(1))
       : 0;
     postServiceNps.npsScore = postServiceNpsScore;
-
     // --- Processamento para KPI de Retenção ---
     const allAtendimentoData = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
     let retentionValue = 0;
     const statusRetido = "Retido no Atendimento (MSPC)";
-
     allAtendimentoData.forEach((row, index) => {
       const dateStr = row[INDICES_ATENDIMENTO.DATA_ATENDIMENTO];
       if (!dateStr) return;
@@ -408,14 +427,16 @@ function getCalltechData(dateRange) {
         const atendimentoDate = new Date(year, month - 1, day);
         if (isNaN(atendimentoDate.getTime())) return;
 
-        const atendimentoDateISO = atendimentoDate.toISOString().split('T')[0];
-        
+        const atendimentoDateISO
+= atendimentoDate.toISOString().split('T')[0];
+
         if (atendimentoDateISO >= dateRange.start && atendimentoDateISO <= dateRange.end) {
           const status = row[INDICES_ATENDIMENTO.STATUS_ATENDIMENTO];
           if (status === statusRetido) {
             const valorStr = row[INDICES_ATENDIMENTO.VALOR_RETIDO] || '0';
             const valorNumerico = parseFloat(valorStr.replace('R$', '').replace(/\./g, '').replace(',', '.').trim());
-            if (!isNaN(valorNumerico)) {
+            if
+(!isNaN(valorNumerico)) {
               retentionValue += valorNumerico;
             }
           }
@@ -436,12 +457,13 @@ function getCalltechData(dateRange) {
         npsFeedback: npsFeedback,
         postServiceNps: postServiceNps // NOVO KPI ADICIONADO
       },
-      resolutionRate: resolutionRate
+      resolutionRate:
+resolutionRate
     };
   } catch (e) {
     Logger.log(`Erro fatal na função getCalltechData: ${e.stack}`);
-    return { 
-      tickets: [], 
+    return {
+      tickets: [],
       kpis: { total: 0, open: 0, closed: 0, avgTime: 0, retentionValue: 0, npsFeedback: { total: 0, promoters: 0, neutrals: 0, detractors: 0 }, postServiceNps: { total: 0, promoters: 0, neutrals: 0, detractors: 0, npsScore: 0 } },
       resolutionRate: {}
     };
@@ -454,7 +476,6 @@ function getDailyFlowChartData(dateRange) {
     const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
     const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
     if (!abaManager) throw new Error(`Aba ${NOME_ABA_MANAGER} não encontrada.`);
-    
     const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
     const dailyFlow = {};
     const startDate = new Date(dateRange.start.replace(/-/g, '/'));
@@ -472,15 +493,18 @@ function getDailyFlowChartData(dateRange) {
             const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
             if (openDateStr) {
                 const openDateParts = openDateStr.split(' ')[0].split('/');
+
                 if (openDateParts.length === 3) {
                     const openDate = new Date(openDateParts[2], openDateParts[1] - 1, openDateParts[0]);
                     if (!isNaN(openDate.getTime())) {
                         const openDateISO = openDate.toISOString().split('T')[0];
-                        if (dailyFlow.hasOwnProperty(openDateISO)) {
+
+                         if (dailyFlow.hasOwnProperty(openDateISO)) {
                            dailyFlow[openDateISO].opened++;
                         }
                     }
                 }
+
             }
             // Check closed tickets
             const closeDateStr = row[INDICES_CALLTECH.DATA_FINALIZACAO];
@@ -501,7 +525,8 @@ function getDailyFlowChartData(dateRange) {
         }
     });
 
-    const weekDayInitials = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']; // Dom, Seg, Ter, Qua, Qui, Sex, Sab
+    const weekDayInitials = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+    // Dom, Seg, Ter, Qua, Qui, Sex, Sab
     const dailyFlowChartData = [['Dia', 'Abertos', 'Fechados']];
     Object.keys(dailyFlow).sort().forEach(dayISO => {
         const date = new Date(dayISO.replace(/-/g, '/'));
@@ -512,11 +537,11 @@ function getDailyFlowChartData(dateRange) {
         const label = `${day}/${month}\n(${weekDayInitial})`;
         dailyFlowChartData.push([label, dailyFlow[dayISO].opened, dailyFlow[dayISO].closed]);
     });
-    
     return dailyFlowChartData;
   } catch (e) {
     Logger.log(`Erro fatal na função getDailyFlowChartData: ${e.stack}`);
-    return [['Dia', 'Abertos', 'Fechados']]; // Return headers on error
+    return [['Dia', 'Abertos', 'Fechados']];
+    // Return headers on error
   }
 }
 
@@ -528,14 +553,14 @@ function getNpsTimelineData(dateRange) {
   try {
     const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
     const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
-    const abaAcoes = planilhaNPS.getSheetByName(NOME_ABA_ACOES); 
+    const abaAcoes = planilhaNPS.getSheetByName(NOME_ABA_ACOES);
 
     if (!abaNPS || !abaAcoes) {
       throw new Error("Aba de NPS ou de Ações não encontrada.");
     }
 
     const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getValues();
-    const dadosAcoes = abaAcoes.getRange(2, 1, abaAcoes.getLastRow() - 1, 7).getValues(); 
+    const dadosAcoes = abaAcoes.getRange(2, 1, abaAcoes.getLastRow() - 1, 7).getValues();
 
     const dadosFiltrados = todosDadosNPS.filter(linha => {
       const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
@@ -543,7 +568,6 @@ function getNpsTimelineData(dateRange) {
       const dataFormatada = Utilities.formatDate(dataAvaliacao, "GMT-3", "yyyy-MM-dd");
       return dataFormatada >= dateRange.start && dataFormatada <= dateRange.end;
     });
-
     const dadosUnicos = getUniqueValidRows(dadosFiltrados, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
 
     // Agrupa as métricas por semana
@@ -559,6 +583,7 @@ function getNpsTimelineData(dateRange) {
       const utcDate = new Date(Date.UTC(year, month, day));
 
       // getUTCDay() retorna 0 para Domingo, 1 para Segunda...
+
       const dayOfWeek = utcDate.getUTCDay();
       utcDate.setUTCDate(utcDate.getUTCDate() - dayOfWeek);
 
@@ -574,29 +599,29 @@ function getNpsTimelineData(dateRange) {
       else if (classificacao === 'neutro') weeklyMetrics[key].neutrals++;
       else if (classificacao === 'detrator') weeklyMetrics[key].detractors++;
     });
-
     // Processa as ações e as associa a cada semana
     const actionsByWeek = {};
     dadosAcoes.forEach(acao => {
-        const acaoTexto = acao[1]; 
-        const acaoData = acao[6]; 
+        const acaoTexto = acao[1];
+        const acaoData = acao[6];
         if (acaoTexto && acaoData instanceof Date) {
             // Usa a mesma lógica UTC para as ações para garantir consistência
             const year = acaoData.getFullYear();
             const month = acaoData.getMonth();
+
             const day = acaoData.getDate();
             const utcDate = new Date(Date.UTC(year, month, day));
             const dayOfWeek = utcDate.getUTCDay();
             utcDate.setUTCDate(utcDate.getUTCDate() - dayOfWeek);
             const key = Utilities.formatDate(utcDate, "UTC", "yyyy-MM-dd");
-            
+
              if (!actionsByWeek[key]) {
-                actionsByWeek[key] = [];
+
+               actionsByWeek[key] = [];
             }
             actionsByWeek[key].push(acaoTexto);
         }
     });
-
     // Monta o array final, calculando o NPS e as variações
     const sortedKeys = Object.keys(weeklyMetrics).sort();
     const result = [];
@@ -606,10 +631,11 @@ function getNpsTimelineData(dateRange) {
       const metrics = weeklyMetrics[key];
       const total = metrics.promoters + metrics.neutrals + metrics.detractors;
       const nps = total > 0 ? parseFloat((((metrics.promoters - metrics.detractors) / total) * 100).toFixed(1)) : 0;
-      
+
       const weekDate = new Date(key);
       const weekData = {
         weekKey: key, // Chave da data correta (Domingo) para o front-end
+
         weekLabel: `Semana de ${Utilities.formatDate(weekDate, "UTC", "dd/MM")}`, // Label formatada em UTC
         nps: nps,
         detractors: metrics.detractors,
@@ -621,17 +647,17 @@ function getNpsTimelineData(dateRange) {
       };
 
       if (previousWeekMetrics) {
+
         weekData.npsChange = parseFloat((nps - previousWeekMetrics.nps).toFixed(1));
         weekData.detractorsChange = metrics.detractors - previousWeekMetrics.detractors;
         weekData.neutralsChange = metrics.neutrals - previousWeekMetrics.neutrals;
       }
-      
+
       result.push(weekData);
       previousWeekMetrics = { nps, detractors: metrics.detractors, neutrals: metrics.neutrals };
     });
 
     return result;
-
   } catch (e) {
     Logger.log(`Erro em getNpsTimelineData: ${e.stack}`);
     return { error: e.message };
@@ -650,27 +676,22 @@ function getRecentActions() {
     }
 
     // Ler as colunas B (ação) e G (data) - o range começa em B e vai até G (6 colunas)
-    const dadosAcoes = abaAcoes.getRange(2, 2, abaAcoes.getLastRow() - 1, 6).getValues(); 
-
+    const dadosAcoes = abaAcoes.getRange(2, 2, abaAcoes.getLastRow() - 1, 6).getValues();
     const acoesComData = dadosAcoes
       .map(linha => ({
         acao: linha[0], // Coluna B (índice 0 no array lido)
         data: linha[5]  // Coluna G (índice 5 no array lido)
       }))
       .filter(item => item.acao && item.data instanceof Date && !isNaN(item.data));
-
     // Ordenar pela data mais recente
     acoesComData.sort((a, b) => b.data - a.data);
-
     // Pegar as 6 mais recentes e formatar
     const acoesRecentes = acoesComData.slice(0, 6).map(item => ({
       acao: item.acao,
       data: Utilities.formatDate(item.data, "GMT-3", "dd/MM/yyyy")
     }));
-
     // Inverte a ordem para exibir da mais antiga para a mais recente (esquerda para direita)
     return acoesRecentes.reverse();
-
   } catch (e) {
     Logger.log(`Erro em getRecentActions: ${e.stack}`);
     return { error: e.message };
@@ -771,7 +792,9 @@ function getPraiseAnalysis(comments) {
 }
 
 function getWordFrequencyAnalysis(comments) {
-  const stopWords = new Set(['de', 'a', 'o', 'que', 'e', 'do', 'da', 'em', 'um', 'para', 'com', 'não', 'uma', 'os', 'no', 'na', 'por', 'mais', 'as', 'dos', 'como', 'mas', 'foi', 'ao', 'ele', 'das', 'tem', 'à', 'seu', 'sua', 'ou', 'ser', 'quando', 'muito', 'há', 'nos', 'já', 'está', 'eu', 'também', 'só', 'pelo', 'pela', 'até', 'isso', 'ela', 'entre', 'era', 'depois', 'sem', 'mesmo', 'aos', 'ter', 'seus', 'quem', 'nas', 'me', 'esse', 'eles', 'estão', 'você', 'tinha', 'foram', 'essa', 'num', 'nem', 'suas', 'meu', 'às', 'minha', 'numa', 'pelos', 'elas', 'havia', 'seja', 'qual', 'será', 'nós', 'tenho', 'lhe', 'deles', 'essas', 'esses', 'pelas', 'este', 'fosse', 'dele', 'tu', 'te', 'vocês', 'vos', 'lhes', 'meus', 'minhas', 'teu', 'tua', 'teus', 'tuas', 'nosso', 'nossa', 'nossos', 'nossas', 'dela', 'delas', 'esta', 'estes', 'estas', 'aquele', 'aquela', 'aqueles', 'aquelas', 'isto', 'aquilo', 'estou', 'está', 'estamos', 'estão', 'estive', 'esteve', 'estivemos', 'estiveram', 'estava', 'estávamos', 'estavam', 'estivera', 'estivéramos', 'esteja', 'estejamos', 'estejam', 'estivesse', 'estivéssemos', 'estivessem', 'estiver', 'estivermos', 'estiverem', 'hei', 'há', 'havemos', 'hão', 'houve', 'houvemos', 'houveram', 'houvera', 'houvéramos', 'haja', 'hajamos', 'hajam', 'houvesse', 'houvéssemos', 'houvessem', 'houver', 'houvermos', 'houverem', 'houverei', 'houverá', 'houveremos', 'houverão', 'houveria', 'houveríamos', 'houveriam', 'sou', 'somos', 'são', 'era', 'éramos', 'eram', 'fui', 'foi', 'fomos', 'foram', 'fora', 'fôramos', 'seja', 'sejamos', 'sejam', 'fosse', 'fôssemos', 'fossem', 'for', 'formos', 'forem', 'serei', 'será', 'seremos', 'serão', 'seria', 'seríamos', 'seriam', 'tenho', 'tem', 'temos', 'tém', 'tinha', 'tínhamos', 'tinham', 'tive', 'teve', 'tivemos', 'tiveram', 'tivera', 'tivéramos', 'tenha', 'tenhamos', 'tenham', 'tivesse', 'tivéssemos', 'tivessem', 'tiver', 'tivermos', 'tiverem', 'terei', 'terá', 'teremos', 'terão', 'teria', 'teríamos', 'teriam', 'pc', 'computador']);
+  const stopWords = new Set(['de', 'a', 'o', 'que', 'e', 'do', 'da', 'em', 'um', 'para', 'com', 'não', 'uma', 'os', 'no', 'na', 'por', 'mais', 'as', 'dos', 'como', 'mas', 'foi', 'ao', 'ele', 'das', 'tem', 'à', 'seu', 'sua', 'ou', 'ser', 'quando', 'muito', 'há', 'nos', 'já', 'está', 'eu', 'também', 'só', 'pelo', 'pela', 'até', 'isso', 'ela', 'entre', 'era', 'depois', 'sem', 'mesmo', 'aos', 'ter', 'seus', 'quem', 'nas', 'me', 'esse', 'eles', 'estão', 'você', 'tinha', 'foram', 'essa', 'num', 'nem', 'suas', 'meu', 'às', 'minha', 'numa', 'pelos', 'elas', 'havia', 'seja', 'qual', 'será', 'nós', 'tenho', 'lhe', 'deles', 'essas', 'esses', 'pelas', 'este', 'fosse', 'dele', 'tu', 'te', 'vocês', 'vos', 'lhes',
+'meus', 'minhas', 'teu', 'tua', 'teus', 'tuas', 'nosso', 'nossa', 'nossos', 'nossas', 'dela', 'delas', 'esta', 'estes', 'estas', 'aquele', 'aquela', 'aqueles', 'aquelas', 'isto', 'aquilo', 'estou', 'está', 'estamos', 'estão', 'estive', 'esteve', 'estivemos', 'estiveram', 'estava', 'estávamos', 'estavam', 'estivera', 'estivéramos', 'esteja', 'estejamos', 'estejam', 'estivesse', 'estivéssemos', 'estivessem', 'estiver', 'estivermos', 'estiverem', 'hei', 'há', 'havemos', 'hão', 'houve', 'houvemos', 'houveram', 'houvera', 'houvéramos', 'haja', 'hajamos', 'hajam', 'houvesse', 'houvéssemos', 'houvessem', 'houver', 'houvermos', 'houverem', 'houverei', 'houverá', 'houveremos', 'houverão', 'houveria', 'houveríamos', 'houveriam', 'sou', 'somos', 'são', 'era', 'éramos', 'eram', 'fui', 'foi', 'fomos', 'foram', 'fora', 'fôramos', 'seja', 'sejamos', 'sejam', 'fosse', 'fôssemos', 'fossem', 'for', 'formos', 'forem', 'serei', 'será', 'seremos', 'serão', 'seria', 'seríamos', 'seriam', 'tenho', 'tem', 'temos', 'tém',
+'tinha', 'tínhamos', 'tinham', 'tive', 'teve', 'tivemos', 'tiveram', 'tivera', 'tivéramos', 'tenha', 'tenhamos', 'tenham', 'tivesse', 'tivéssemos', 'tivessem', 'tiver', 'tivermos', 'tiverem', 'terei', 'terá', 'teremos', 'terão', 'teria', 'teríamos', 'teriam', 'pc', 'computador']);
   const categories = {
     "Funcionamento do PC": ['desempenho', 'rápido', 'xmp', 'placa','placa-mãe','windows', 'lento', 'travando', 'temperatura', 'fps', 'funciona', 'funcionando', 'problema', 'defeito', 'liga', 'desliga', 'performance', 'jogos', 'roda', 'rodando'],
     "Qualidade de Montagem": ['montagem', 'cabo', 'cabos', 'organização', 'organizado', 'arrumado', 'encaixado', 'solto', 'peça', 'peças', 'cable', 'management'],
@@ -791,6 +814,7 @@ function getWordFrequencyAnalysis(comments) {
           break;
         }
       }
+
     });
   });
   const result = {};
@@ -844,6 +868,7 @@ function calculateMonthlyEvolution(dadosUnicos) {
         const year = date.getFullYear();
         const key = `${year}-${String(month).padStart(2, '0')}`;
         const monthLabel = `${monthNames[month]}. de ${year}`;
+
         if (!monthlyMetrics[key]) { monthlyMetrics[key] = { label: monthLabel, promoters: 0, neutrals: 0, detractors: 0, firstDayOfMonth: new Date(year, month, 1) }; }
         const classificacao = linha[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
         if (classificacao === 'promotor') monthlyMetrics[key].promoters++;
@@ -871,7 +896,8 @@ function calculateWeeklyEvolution(dadosUnicos) {
         const firstDayOfWeek = new Date(date.setDate(date.getDate() - date.getDay()));
         const key = firstDayOfWeek.toISOString().substring(0, 10);
         const weekLabel = `Semana de ${key.substring(8,10)}/${key.substring(5,7)}`;
-        if (!weeklyMetrics[key]) { weeklyMetrics[key] = { label: weekLabel, promoters: 0, neutrals: 0, detractors: 0 }; }
+        if (!weeklyMetrics[key]) { weeklyMetrics[key] = {
+label: weekLabel, promoters: 0, neutrals: 0, detractors: 0 }; }
         const classificacao = linha[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
         if (classificacao === 'promotor') weeklyMetrics[key].promoters++;
         else if (classificacao === 'detrator') weeklyMetrics[key].detractors++;
@@ -888,17 +914,22 @@ function calculateWeeklyEvolution(dadosUnicos) {
     return dataTable;
 }
 
-function getDashboardData(dateRange) {
+/**
+ * OTIMIZADO: Função de cache para o mapeamento de OS por Pedido.
+ * Evita ler a aba "NPS Datas" repetidamente.
+ */
+function getOsMap() {
+  const cache = CacheService.getScriptCache();
+  const cachedOsMap = cache.get('os_map');
+
+  if (cachedOsMap) {
+    return new Map(JSON.parse(cachedOsMap));
+  }
+
   const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
-  const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
-  const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
-  const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
   const abaOS = planilhaNPS.getSheetByName(NOME_ABA_OS);
-  if (!abaNPS) throw new Error(`A aba "${NOME_ABA_NPS}" não foi encontrada na planilha de NPS.`);
-  if (!abaAtendimento) throw new Error(`A aba "${NOME_ABA_ATENDIMENTO}" não foi encontrada na planilha de CallTech.`);
-  if (!abaOS) throw new Error(`A aba "${NOME_ABA_OS}" não foi encontrada na planilha de NPS.`);
-  const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
-  const dadosAtendimento = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
+  if (!abaOS) return new Map();
+
   const dadosOS = abaOS.getRange(2, 1, abaOS.getLastRow() - 1, abaOS.getLastColumn()).getDisplayValues();
   const osPorPedido = new Map();
   dadosOS.forEach(linha => {
@@ -906,6 +937,38 @@ function getDashboardData(dateRange) {
     const os = linha[INDICES_OS.OS]?.trim();
     if (pedidoId && os) { osPorPedido.set(pedidoId, os); }
   });
+
+  // Salva no cache por 1 hora (3600 segundos) para balancear performance e atualização.
+  cache.put('os_map', JSON.stringify(Array.from(osPorPedido.entries())), 3600);
+  
+  return osPorPedido;
+}
+
+
+/**
+ * FUNÇÃO OTIMIZADA: Reduz o número de chamadas e leituras da planilha.
+ */
+function getDashboardData(dateRange) {
+  // 1. Abrir conexões UMA VEZ
+  const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
+  const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
+
+  // 2. Obter todas as abas necessárias UMA VEZ
+  const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
+  const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
+
+  // 3. Validação das abas
+  if (!abaNPS) throw new Error(`A aba "${NOME_ABA_NPS}" não foi encontrada na planilha de NPS.`);
+  if (!abaAtendimento) throw new Error(`A aba "${NOME_ABA_ATENDIMENTO}" não foi encontrada na planilha de CallTech.`);
+
+  // 4. Ler TODOS os dados necessários das planilhas para a memória UMA VEZ
+  const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
+  const dadosAtendimento = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
+  
+  // 5. Obter mapeamento de OS (da função com cache)
+  const osPorPedido = getOsMap();
+
+  // --- Início do Processamento (usando os dados em memória) ---
   const atendimentoPorPedido = new Map();
   dadosAtendimento.forEach(linha => {
       const pedidoId = linha[INDICES_ATENDIMENTO.PEDIDO_ID]?.trim();
@@ -914,12 +977,15 @@ function getDashboardData(dateRange) {
           atendimentoPorPedido.get(pedidoId).push(linha);
       }
   });
+  
   const anoCorrente = new Date().getFullYear().toString();
   const dadosUnicosDoAno = getUniqueValidRows(todosDadosNPS.filter(linha => {
     const dataDisparoTexto = linha[INDICES_NPS.DATA_AVALIACAO];
     return dataDisparoTexto && dataDisparoTexto.substring(0, 4) === anoCorrente;
   }), INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
+  
   const metricasAcumuladas = calcularMetricasBasicas(dadosUnicosDoAno);
+  
   const dadosParaMeta = todosDadosNPS.filter(linha => {
     const dataDisparoTexto = linha[INDICES_NPS.DATA_AVALIACAO];
     if (!dataDisparoTexto) return false;
@@ -928,11 +994,14 @@ function getDashboardData(dateRange) {
   });
   const dadosUnicosMeta = getUniqueValidRows(dadosParaMeta, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
   const metricasMeta = calcularMetricasBasicas(dadosUnicosMeta);
+  
   const dadosFiltradosPorData = todosDadosNPS.filter(linha => {
     const dataDisparoTexto = linha[INDICES_NPS.DATA_AVALIACAO];
     return dataDisparoTexto && dataDisparoTexto.substring(0, 10) >= dateRange.start && dataDisparoTexto.substring(0, 10) <= dateRange.end;
   });
+  
   const dadosUnicosDoPeriodo = getUniqueValidRows(dadosFiltradosPorData, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
+  
   const startDate = new Date(dateRange.start.replace(/-/g, '/'));
   const endDate = new Date(dateRange.end.replace(/-/g, '/'));
   const duration = endDate.getTime() - startDate.getTime();
@@ -940,13 +1009,16 @@ function getDashboardData(dateRange) {
   const previousStartDate = new Date(previousEndDate.getTime() - duration);
   const previousStartStr = previousStartDate.toISOString().split('T')[0];
   const previousEndStr = previousEndDate.toISOString().split('T')[0];
+  
   const dadosPeriodoAnterior = todosDadosNPS.filter(linha => {
     const dataDisparoTexto = linha[INDICES_NPS.DATA_AVALIACAO];
     return dataDisparoTexto && dataDisparoTexto.substring(0, 10) >= previousStartStr && dataDisparoTexto.substring(0, 10) <= previousEndStr;
   });
   const dadosUnicosAnterior = getUniqueValidRows(dadosPeriodoAnterior, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
+  
   const metricasAnteriores = calcularMetricasBasicas(dadosUnicosAnterior);
   const metricasDetalhadas = processarMetricasDetalhadas(dadosUnicosDoPeriodo, atendimentoPorPedido);
+  
   const rawResponses = dadosUnicosDoPeriodo.map(linha => {
     const dateStr = linha[INDICES_NPS.DATA_AVALIACAO].substring(0, 10);
     const [year, month, day] = dateStr.split('-');
@@ -959,21 +1031,27 @@ function getDashboardData(dateRange) {
     ];
   }).sort((a, b) => {
       const [dayA, monthA, yearA] = a[0].split('/');
-      const [dayB, monthB, yearB] = b[0].split('/');
+      const [dayB, monthB, yearB]
+= b[0].split('/');
       return new Date(`${yearB}-${monthB}-${dayB}`) - new Date(`${yearA}-${monthA}-${dayA}`);
   });
+  
   const metricasPeriodo = calcularMetricasBasicas(dadosUnicosDoPeriodo);
+  
   return {
     nps: metricasPeriodo.nps, totalRespostas: metricasPeriodo.totalRespostas, promotores: metricasPeriodo.promotores, neutros: metricasPeriodo.neutros, detratores: metricasPeriodo.detratores,
-    previousNps: metricasAnteriores.totalRespostas > 0 ? metricasAnteriores.nps : null, npsAcumulado: metricasAcumuladas.nps, totalRespostasAcumulado: metricasAcumuladas.totalRespostas,
+    previousNps: metricasAnteriores.totalRespostas > 0 ?
+metricasAnteriores.nps : null, npsAcumulado: metricasAcumuladas.nps, totalRespostasAcumulado: metricasAcumuladas.totalRespostas,
     npsMeta: metricasMeta.nps, totalRespostasMeta: metricasMeta.totalRespostas, contagemMotivos: metricasDetalhadas.contagemMotivos, detratoresComChamado: metricasDetalhadas.detratoresComChamado,
     detractorSupportReasons: metricasDetalhadas.detractorSupportReasons, rawResponses: rawResponses
   };
 }
 
+
 function calcularMetricasBasicas(dadosUnicos) {
   const totalRespostas = dadosUnicos.length;
-  if (totalRespostas === 0) { return { nps: 0, promotores: 0, neutros: 0, detratores: 0, totalRespostas: 0 }; }
+  if (totalRespostas === 0) { return { nps: 0, promotores: 0, neutros: 0, detratores: 0, totalRespostas: 0 };
+  }
   let promotores = 0, detratores = 0, neutros = 0;
   for (const linha of dadosUnicos) {
     const classificacao = linha[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
@@ -1002,7 +1080,8 @@ function processarMetricasDetalhadas(dadosUnicos, atendimentoMap) {
       const pedidoId = linha[INDICES_NPS.PEDIDO_ID]?.trim();
       if (atendimentoMap && atendimentoMap.has(pedidoId)) {
           atendimentoMap.get(pedidoId).forEach(chamadoLinha => {
-              const motivoChamado = chamadoLinha[INDICES_ATENDIMENTO.RESOLUCAO] || "Não especificado";
+              const motivoChamado
+= chamadoLinha[INDICES_ATENDIMENTO.RESOLUCAO] || "Não especificado";
               detratoresComChamado[motivoChamado] = (detratoresComChamado[motivoChamado] || 0) + 1;
               detractorSupportReasons.add(motivoChamado);
           });
@@ -1051,7 +1130,8 @@ function getDetractorSupportDetails(dateRange, reasons) {
           const dateStr = detratorRow[INDICES_NPS.DATA_AVALIACAO].substring(0, 10);
           const [year, month, day] = dateStr.split('-');
           details.push({
-            dataAvaliacao: `${day}/${month}/${year}`, pedido: pedidoId, os: osPorPedido.get(pedidoId) || '', cliente: detratorRow[INDICES_NPS.CLIENTE],
+            dataAvaliacao:
+`${day}/${month}/${year}`, pedido: pedidoId, os: osPorPedido.get(pedidoId) || '', cliente: detratorRow[INDICES_NPS.CLIENTE],
             classificacao: detratorRow[INDICES_NPS.CLASSIFICACAO], comentario: detratorRow[INDICES_NPS.COMENTARIO], resolucao: resolucao,
             defeito: atendimentoRow[INDICES_ATENDIMENTO.DEFEITO], relatoCliente: atendimentoRow[INDICES_ATENDIMENTO.RELATO_CLIENTE]
           });
@@ -1061,4 +1141,3 @@ function getDetractorSupportDetails(dateRange, reasons) {
   });
   return details;
 }
-
