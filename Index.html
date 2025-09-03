@@ -59,6 +59,48 @@
             grid-column: 2;
             grid-row: 1;
         }
+
+        /* === INÍCIO: NOVOS ESTILOS PARA O LOADER ANIMADO === */
+        .loader-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding-top: 5rem;
+            padding-bottom: 5rem;
+            min-height: 300px;
+        }
+        .spinner {
+            width: 56px;
+            height: 56px;
+            display: grid;
+            border: 4.5px solid #0000;
+            border-radius: 50%;
+            border-color: #ff6000 #0000; /* Laranja KaBuM! */
+            animation: spinner-e04l1k 1s infinite linear;
+            margin-bottom: 1rem;
+        }
+        .spinner::before,
+        .spinner::after {
+            content: "";
+            grid-area: 1/1;
+            margin: 2.2px;
+            border: inherit;
+            border-radius: 50%;
+        }
+        .spinner::before {
+            border-color: #00529e #0000; /* Azul KaBuM! */
+            animation: inherit;
+            animation-duration: 0.5s;
+            animation-direction: reverse;
+        }
+        .spinner::after {
+            margin: 8.9px;
+        }
+        @keyframes spinner-e04l1k {
+            100% { transform: rotate(1turn); }
+        }
+        /* === FIM: NOVOS ESTILOS PARA O LOADER ANIMADO === */
     </style>
 </head>
 <body class="bg-slate-100">
@@ -171,8 +213,13 @@
         // === FUNÇÕES UTILITÁRIAS GLOBAIS ==================================
         // ==================================================================
 
+        // MODIFICADO: Função showPageLoader para usar a nova animação
         function showPageLoader(message = 'Carregando...') {
-            document.getElementById('page-content').innerHTML = `<div id="page-loader" class="text-center py-20"><p class="text-lg font-semibold text-orange-500">${message}</p></div>`;
+            document.getElementById('page-content').innerHTML = `
+                <div id="page-loader" class="loader-container">
+                    <div class="spinner"></div>
+                    <p class="text-lg font-semibold text-slate-600">${message}</p>
+                </div>`;
         }
         
         function displayError(title, error) {
@@ -210,4 +257,3 @@
 
 </body>
 </html>
-
