@@ -70,7 +70,10 @@ function doGet(e) {
  * Retorna o conteúdo HTML de uma página específica para ser carregado dinamicamente.
  */
 function getPageHtml(pageName) {
-  if (pageName === 'Dashboard' || pageName === 'Calltech') {
+  // --- INÍCIO DA MODIFICAÇÃO ---
+  // Adicionamos 'Devolucao' à lista de páginas válidas.
+  if (pageName === 'Dashboard' || pageName === 'Calltech' || pageName === 'Devolucao') {
+  // --- FIM DA MODIFICAÇÃO ---
     return HtmlService.createHtmlOutputFromFile('Page_' + pageName).getContent();
   }
   throw new Error('Página não encontrada.');
