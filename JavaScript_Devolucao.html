@@ -1,0 +1,150 @@
+<script>
+// ==================================================================
+// === LÓGICA DA PÁGINA DEVOLUÇÃO ===================================
+// ==================================================================
+
+function initializeDevolucaoPage() {
+    google.charts.load('current', { 'packages': ['corechart'] });
+    google.charts.setOnLoadCallback(() => {
+        try {
+            const today = new Date();
+            const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            document.getElementById('dev-endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('dev-startDate').value = firstDayMonth.toISOString().split('T')[0];
+            
+            document.getElementById('dev-applyButton').addEventListener('click', applyDevolucaoDateFilter);
+            document.getElementById('dev-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
+            document.getElementById('dev-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
+            updateDevolucaoDateRangeDisplay();
+            
+            fetchDevolucaoData();
+
+        } catch (error) {
+            displayError("Erro ao inicializar o Dashboard de Devolução", error);
+        }
+    });
+}
+
+function updateDevolucaoDateRangeDisplay() {
+    const startDate = new Date(document.getElementById('dev-startDate').value.replace(/-/g, '/'));
+    const endDate = new Date(document.getElementById('dev-endDate').value.replace(/-/g, '/'));
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    const display = `${startDate.toLocaleDateString('pt-BR', options)} - ${endDate.toLocaleDateString('pt-BR', options)}`;
+    document.getElementById('dev-date-range-display').textContent = display;
+}
+
+function applyDevolucaoDateFilter() {
+    document.getElementById('dev-date-range-popup').classList.remove('show');
+    updateDevolucaoDateRangeDisplay();
+    pageCache.data.devolucao = null; // Invalida o cache
+    fetchDevolucaoData();
+}
+
+function fetchDevolucaoData() {
+    if (pageCache.data.devolucao) {
+        onDevolucaoDataReceived(pageCache.data.devolucao);
+        return;
+    }
+
+    const loader = document.getElementById('devolucao-loader');
+    const content = document.getElementById('devolucao-content');
+    if (loader) loader.style.display = 'block';
+    if (content) content.style.visibility = 'hidden';
+
+    const dateRange = {
+        start: document.getElementById('dev-startDate').value,
+        end: document.getElementById('dev-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(onDevolucaoDataReceived)
+        .withFailureHandler(error => displayError('Falha ao buscar dados de Devolução', error))
+        .getDevolucaoData(dateRange);
+}
+
+function onDevolucaoDataReceived(data) {
+    if (data.error) {
+        displayError('Erro ao processar dados de Devolução', { message: data.error });
+        return;
+    }
+    pageCache.data.devolucao = data;
+
+    const loader = document.getElementById('devolucao-loader');
+    const content = document.getElementById('devolucao-content');
+    if (loader) loader.style.display = 'none';
+    if (content) content.style.visibility = 'visible';
+
+    // Atualiza KPIs
+    document.getElementById('kpi-total-devolvido').textContent = (data.kpis.totalDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    document.getElementById('kpi-pedidos-devolucao').textContent = data.kpis.pedidosComDevolucao || 0;
+    document.getElementById('kpi-itens-devolvidos').textContent = data.kpis.totalItensDevolvidos || 0;
+    
+    // Renderiza as listas
+    renderTopList('top-motivos-container', data.topMotivos, '#4f46e5');
+    renderTopList('top-produtos-container', data.topProdutos, '#059669', true);
+    renderTopList('top-fabricantes-container', data.topFabricantes, '#d97706');
+
+    // Desenha o gráfico
+    drawDevolucoesChart(data.devolucoesPorMes);
+}
+
+function renderTopList(containerId, data, barColor, isProduct = false) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!data || data.length === 0) {
+        container.innerHTML = '<p class="text-sm text-slate-500">Nenhum dado encontrado.</p>';
+        return;
+    }
+
+    const maxCount = data[0][1];
+
+    data.forEach(([item, count]) => {
+        const percentage = (count / maxCount) * 100;
+        const shortItem = isProduct && item.length > 50 ? item.substring(0, 50) + '...' : item;
+        
+        const listItem = `
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <span class="font-medium text-slate-700" title="${item}">${shortItem}</span>
+                    <span class="font-bold text-slate-800">${count}</span>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-1.5">
+                    <div class="h-1.5 rounded-full" style="width: ${percentage}%; background-color: ${barColor};"></div>
+                </div>
+            </div>
+        `;
+        container.innerHTML += listItem;
+    });
+}
+
+function drawDevolucoesChart(chartData) {
+    const chartDiv = document.getElementById('devolucoes-mes-chart');
+    if (!chartDiv) return;
+
+    if (!chartData || chartData.length <= 1) {
+        chartDiv.innerHTML = '<p class="text-center py-10 text-slate-500">Não há dados suficientes para gerar o gráfico.</p>';
+        return;
+    }
+    
+    const data = google.visualization.arrayToDataTable(chartData);
+
+    const options = {
+        legend: { position: 'top', alignment: 'end' },
+        seriesType: 'bars',
+        series: { 0: { targetAxisIndex: 0, type: 'line', color: '#f97316' } }, // Valor
+        vAxes: {
+            0: { title: 'Valor Devolvido (R$)', format: 'R$ #,##0.00' },
+            1: { title: 'Quantidade de Devoluções' }
+        },
+        hAxis: { title: 'Mês' },
+        chartArea: { left: 100, top: 50, width: '80%', height: '70%' },
+        colors: ['#1d4ed8'] // Cor das barras de Quantidade
+    };
+
+    const chart = new google.visualization.ComboChart(chartDiv);
+    chart.draw(data, options);
+}
+
+</script>
