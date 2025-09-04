@@ -1,6 +1,6 @@
 <script>
 // ==================================================================
-// === LÓGICA DA PÁGINA CALLTECH E MODAL DE CLIENTES ================
+// === LÓGICA DA PÁGINA CALLTECH E MODAL DE CLIENTES (OTIMIZADA) ====
 // ==================================================================
 let allCalltechTickets = [];
 let filteredCalltechTickets = [];
@@ -83,10 +83,11 @@ function applyCalltechDateFilter() {
     fetchCalltechData();
 }
 
-// NOVA FUNÇÃO para aplicar o filtro do gráfico de fluxo
+// MODIFICADO: Adicionado invalidação de cache para o gráfico de fluxo
 function applyFlowChartDateFilter() {
     document.getElementById('flow-date-range-popup').classList.remove('show');
     updateCalltechDateRangeDisplay('flow');
+    pageCache.data.calltechFlowChart = null; // Invalida o cache do gráfico
     fetchAndDrawFlowChart();
 }
 
@@ -111,8 +112,14 @@ function fetchCalltechData() {
         .getCalltechData(dateRange);
 }
 
-// NOVA FUNÇÃO para buscar e desenhar o gráfico de fluxo
+// MODIFICADO: Adicionado lógica de cache para o gráfico de fluxo
 function fetchAndDrawFlowChart() {
+    // Verifica se os dados do gráfico já existem no cache
+    if (pageCache.data.calltechFlowChart) {
+        drawDailyFlowChart(pageCache.data.calltechFlowChart);
+        return;
+    }
+
     const chartContainer = document.getElementById('daily_flow_chart');
     if (chartContainer) {
         chartContainer.innerHTML = '<p class="text-center text-slate-500 pt-10">Carregando gráfico...</p>';
@@ -124,7 +131,10 @@ function fetchAndDrawFlowChart() {
     };
 
     google.script.run
-        .withSuccessHandler(drawDailyFlowChart)
+        .withSuccessHandler(function(chartData) {
+            pageCache.data.calltechFlowChart = chartData; // Armazena os dados no cache
+            drawDailyFlowChart(chartData);
+        })
         .withFailureHandler(error => {
              if (chartContainer) {
                 chartContainer.innerHTML = '<p class="text-center text-red-500 pt-10">Falha ao carregar o gráfico.</p>';
@@ -134,9 +144,11 @@ function fetchAndDrawFlowChart() {
         .getDailyFlowChartData(dateRange);
 }
 
-
 function onCalltechDataReceived(data) {
     pageCache.data.calltech = data;
+
+    // OTIMIZAÇÃO: Armazena os históricos pré-carregados no cache da página
+    pageCache.data.customerHistories = data.customerHistories || {};
 
     const loader = document.getElementById('calltech-loader');
     const content = document.getElementById('calltech-content');
@@ -150,27 +162,19 @@ function onCalltechDataReceived(data) {
     document.getElementById('kpi-avg-time').textContent = `${data.kpis.avgTime || 0} dias`;
     document.getElementById('kpi-retention-value').textContent = (data.kpis.retentionValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     
-    // Atualiza o card de NPS (geral, baseado nos chamados do período)
     const npsFeedback = data.kpis.npsFeedback || { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
     document.getElementById('kpi-nps-total').textContent = npsFeedback.total;
     document.getElementById('kpi-nps-promoters').textContent = npsFeedback.promoters;
     document.getElementById('kpi-nps-neutrals').textContent = npsFeedback.neutrals;
     document.getElementById('kpi-nps-detractors').textContent = npsFeedback.detractors;
 
-    // =================================================================
-    // === CÓDIGO NOVO PARA O CARD DE EFETIVIDADE PÓS-ATENDIMENTO      ===
-    // =================================================================
     const postServiceNps = data.kpis.postServiceNps || { total: 0, promoters: 0, neutrals: 0, detractors: 0, npsScore: 0.0 };
-
     document.getElementById('kpi-post-service-nps-score').textContent = (postServiceNps.npsScore || 0).toFixed(1);
     document.getElementById('kpi-post-service-total').textContent = postServiceNps.total;
     document.getElementById('kpi-post-service-promoters').textContent = postServiceNps.promoters;
     document.getElementById('kpi-post-service-neutrals').textContent = postServiceNps.neutrals;
     document.getElementById('kpi-post-service-detractors').textContent = postServiceNps.detractors;
-    // =================================================================
-    // === FIM DO CÓDIGO NOVO ==========================================
-    // =================================================================
-
+    
     if (data.resolutionRate) {
         updateResolutionRateCard(data.resolutionRate);
     }
@@ -205,49 +209,20 @@ function drawDailyFlowChart(chartData) {
     }
 
     const data = google.visualization.arrayToDataTable(chartData);
-
     const options = {
         legend: { position: 'top', alignment: 'end' },
-        hAxis: { 
-            title: 'Dia', 
-            textStyle: { fontSize: 11 } 
-        },
-        vAxis: { 
-            title: 'Nº de Chamados', 
-            minValue: 0,
-            gridlines: { color: '#f1f5f9' }
-        },
-        annotations: {
-            alwaysOutside: true,
-            textStyle: {
-                fontSize: 11,
-                color: '#555',
-                auraColor: 'none'
-            }
-        },
-        // Cores da marca KaBuM!
-        colors: ['#ff6000', '#00529e'], // Laranja KaBuM! para Abertos, Azul KaBuM! para Fechados
+        hAxis: { title: 'Dia', textStyle: { fontSize: 11 } },
+        vAxis: { title: 'Nº de Chamados', minValue: 0, gridlines: { color: '#f1f5f9' } },
+        annotations: { alwaysOutside: true, textStyle: { fontSize: 11, color: '#555', auraColor: 'none' } },
+        colors: ['#ff6000', '#00529e'],
         chartArea: { left: 40, top: 40, width: '85%', height: '70%' },
-        bar: { groupWidth: '60%' } // Reduz a largura para aumentar o espaçamento entre os dias
+        bar: { groupWidth: '60%' }
     };
-
     const view = new google.visualization.DataView(data);
-    view.setColumns([0, 1, {
-        calc: "stringify",
-        sourceColumn: 1,
-        type: "string",
-        role: "annotation"
-    }, 2, {
-        calc: "stringify",
-        sourceColumn: 2,
-        type: "string",
-        role: "annotation"
-    }]);
-
+    view.setColumns([0, 1, { calc: "stringify", sourceColumn: 1, type: "string", role: "annotation" }, 2, { calc: "stringify", sourceColumn: 2, type: "string", role: "annotation" }]);
     const chart = new google.visualization.ColumnChart(chartContainer);
     chart.draw(view, options);
 }
-
 
 function filterCalltechTable() {
     const chamadoFilter = document.getElementById('filter-chamado-input').value.toLowerCase();
@@ -311,7 +286,7 @@ function displayCalltechPage() {
     nextBtn.disabled = endIndex >= filteredCalltechTickets.length;
 }
 
-// --- Funções do Modal de Histórico de Cliente ---
+// --- Funções do Modal de Histórico de Cliente (OTIMIZADAS) ---
 function openClientesModal() {
     const modal = document.getElementById('clientes-modal');
     const modalContent = document.getElementById('clientes-modal-content');
@@ -334,29 +309,35 @@ function closeClientesModal() {
     }, 300);
 }
 
+// MODIFICADO: Esta função agora lê do cache em vez de chamar o servidor.
 function openClientHistory(email) {
     if (!email) {
         alert('E-mail do cliente não encontrado.');
         return;
     }
+    
     openClientesModal();
     document.getElementById('clientes-detail-loader').style.display = 'block';
     document.getElementById('clientes-detail-content').innerHTML = '';
-    
-    google.script.run
-        .withSuccessHandler(onClientHistoryReceived)
-        .withFailureHandler(error => displayError('Falha ao buscar histórico do cliente', error))
-        .getCustomerData({ type: 'search', value: email });
+
+    const customerData = pageCache.data.customerHistories ? pageCache.data.customerHistories[email.toLowerCase()] : null;
+
+    if (customerData) {
+        // Dados encontrados no cache, renderiza imediatamente.
+        // Um pequeno timeout ajuda a UI a parecer mais suave.
+        setTimeout(() => renderClientHistory(customerData), 50); 
+    } else {
+        // Fallback: Caso o cliente não tenha sido pré-carregado.
+        setTimeout(() => {
+            document.getElementById('clientes-detail-loader').style.display = 'none';
+            document.getElementById('clientes-detail-content').innerHTML = '<p class="text-center text-slate-500">O histórico para este cliente não foi encontrado no carregamento inicial. Verifique o filtro de datas.</p>';
+        }, 50);
+    }
 }
 
-function onClientHistoryReceived(data) {
+// NOVA FUNÇÃO (lógica movida de onClientHistoryReceived)
+function renderClientHistory(customer) {
     document.getElementById('clientes-detail-loader').style.display = 'none';
-    if(data.error){
-        alert(data.error);
-        return;
-    }
-    
-    const customer = data[0]; // A busca por email deve retornar apenas um cliente
     if (!customer) {
         document.getElementById('clientes-detail-content').innerHTML = '<p class="text-center text-slate-500">Nenhum histórico encontrado para este cliente.</p>';
         return;
