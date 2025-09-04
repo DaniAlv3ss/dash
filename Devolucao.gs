@@ -22,8 +22,11 @@ function getDevolucaoData(dateRange) {
     // Mapeamento de colunas (ajuste os números se a ordem das suas colunas for diferente)
     const INDICES = {
       PEDIDO_ID: 0,       // Coluna A
+      NFE_NUMERO: 2,      // Coluna C
       DATA_NFE: 3,        // Coluna D
+      CF_PRODUTO: 9,      // Coluna J
       PRODUTO: 10,        // Coluna K
+      BUDGET_ID: 12,      // Coluna M
       QTD_DEVOLVIDA: 17,  // Coluna R
       VALOR_DEVOLUCAO: 24,// Coluna Y
       MOTIVO: 26,         // Coluna AA
