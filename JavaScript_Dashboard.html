@@ -62,6 +62,18 @@
 
     // NOVA FUNÇÃO para o carregamento unificado
     function fetchInitialData() {
+        // --- INÍCIO DA MODIFICAÇÃO ---
+        // Verifica se os dados do dashboard e da evolução já existem no cache.
+        if (pageCache.data.dashboard && pageCache.data.evolution) {
+            // Se existirem, reutiliza os dados cacheados para recarregar a página instantaneamente.
+            onInitialDataReceived({
+                mainData: pageCache.data.dashboard,
+                evolutionData: pageCache.data.evolution
+            });
+            return; // Interrompe a função para não buscar dados do servidor.
+        }
+        // --- FIM DA MODIFICAÇÃO ---
+
         document.getElementById('loader').style.display = 'block';
         document.getElementById('dashboard-content').style.visibility = 'hidden';
         google.script.run
@@ -69,6 +81,7 @@
             .withFailureHandler(onFailure)
             .getInitialDashboardAndEvolutionData();
     }
+
 
     // NOVA FUNÇÃO para receber os dados unificados
     function onInitialDataReceived(initialData) {
