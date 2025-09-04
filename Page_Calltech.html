@@ -1,11 +1,8 @@
-<!-- MODIFICADO: Loader com animação -->
-<div id="calltech-loader" class="loader-container">
-    <div class="spinner"></div>
-    <p class="text-lg font-semibold text-slate-600">Carregando dados de atendimento...</p>
+<div id="calltech-loader" class="text-center py-20">
+    <p class="text-lg font-semibold text-orange-500">Carregando dados de atendimento...</p>
 </div>
 
 <div id="calltech-content" style="visibility: hidden;">
-    <!-- Filtro de Data -->
     <div class="flex justify-end mb-6 relative">
         <div class="date-dropdown">
             <button id="ct-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center gap-2">
@@ -25,7 +22,6 @@
         </div>
     </div>
 
-    <!-- KPIs - Primeira Fileira -->
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <h4 class="text-slate-500 font-semibold">Total de Chamados</h4>
@@ -45,14 +41,12 @@
         </div>
     </section>
 
-    <!-- KPIs - Segunda Fileira -->
     <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <h4 class="text-slate-500 font-semibold">Valor Retido no Atendimento</h4>
             <p id="kpi-retention-value" class="text-4xl font-bold text-slate-800 mt-2">R$ 0,00</p>
         </div>
 
-        <!-- INÍCIO: NOVO CARD DE EFETIVIDADE PÓS-ATENDIMENTO -->
         <div class="bg-white p-6 rounded-xl shadow-sm flex flex-col md:col-span-2 lg:col-span-2">
             <h4 class="text-slate-500 font-semibold mb-2">Efetividade Pós-Atendimento</h4>
             <div class="flex flex-grow items-center gap-6">
@@ -86,8 +80,6 @@
                 </div>
             </div>
         </div>
-        <!-- FIM: NOVO CARD -->
-
         <div class="bg-white p-6 rounded-xl shadow-sm flex flex-col">
             <h4 class="text-slate-500 font-semibold mb-2">Chamados com NPS</h4>
             <div class="flex flex-grow items-center gap-6">
@@ -112,13 +104,10 @@
         </div>
     </section>
 
-    <!-- Linha para Gráficos de Análise -->
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <!-- Card de Efetividade da Equipa -->
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <h3 class="text-lg font-semibold text-slate-800 mb-4">Efetividade da Equipe (Taxa de Resolução)</h3>
             <div id="resolution-rate-container" class="space-y-4">
-                <!-- Dia 0 -->
                 <div class="resolution-item">
                     <div class="flex justify-between items-center text-sm mb-1">
                         <span class="font-medium text-slate-600">Resolvido no mesmo dia (D+0)</span>
@@ -128,7 +117,6 @@
                         <div id="rate-day0-bar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
                 </div>
-                <!-- Dia 1 -->
                 <div class="resolution-item">
                     <div class="flex justify-between items-center text-sm mb-1">
                         <span class="font-medium text-slate-600">Resolvido em 1 dia (D+1)</span>
@@ -138,7 +126,6 @@
                         <div id="rate-day1-bar" class="bg-sky-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
                 </div>
-                <!-- Dia 2 -->
                 <div class="resolution-item">
                     <div class="flex justify-between items-center text-sm mb-1">
                         <span class="font-medium text-slate-600">Resolvido em 2 dias (D+2)</span>
@@ -148,7 +135,6 @@
                         <div id="rate-day2-bar" class="bg-amber-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
                 </div>
-                <!-- Dia 3 -->
                 <div class="resolution-item">
                     <div class="flex justify-between items-center text-sm mb-1">
                         <span class="font-medium text-slate-600">Resolvido em 3 dias (D+3)</span>
@@ -158,7 +144,6 @@
                         <div id="rate-day3-bar" class="bg-orange-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
                     </div>
                 </div>
-                <!-- Dia 4+ -->
                 <div class="resolution-item">
                     <div class="flex justify-between items-center text-sm mb-1">
                         <span class="font-medium text-slate-600">Resolvido em 4 dias ou mais (D+4)</span>
@@ -170,11 +155,9 @@
                 </div>
             </div>
         </div>
-        <!-- Card do Gráfico de Fluxo Diário -->
         <div class="bg-white p-6 rounded-xl shadow-sm">
             <div class="flex justify-between items-start mb-4">
                 <h3 class="text-lg font-semibold text-slate-800">Fluxo Diário de Chamados</h3>
-                <!-- NOVO FILTRO DE DATA PARA O GRÁFIICO -->
                 <div class="date-dropdown relative">
                     <button id="flow-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-3 py-1 rounded-md flex items-center gap-2 text-sm">
                         <span id="flow-date-range-display">Últimos 7 dias</span>
@@ -193,12 +176,10 @@
                 </div>
             </div>
             <div id="daily_flow_chart" style="width: 100%; height: 280px;">
-                <!-- O gráfico do Google Charts será renderizado aqui -->
-            </div>
+                </div>
         </div>
     </section>
 
-    <!-- Tabela de Chamados -->
     <div class="bg-white p-6 rounded-xl shadow-sm">
         <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
             <h3 class="text-lg font-semibold text-slate-800">Detalhes dos Chamados</h3>
@@ -224,11 +205,9 @@
                     </tr>
                 </thead>
                 <tbody id="calltech-table-body" class="text-slate-700">
-                    <!-- Linhas serão inseridas pelo JavaScript -->
-                </tbody>
+                    </tbody>
             </table>
         </div>
-        <!-- Paginação -->
         <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
             <span id="ct-page-info"></span>
             <div class="ml-4">
@@ -239,7 +218,6 @@
     </div>
 </div>
 
-<!-- Modal de Histórico de Cliente -->
 <div id="clientes-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300" onclick="event.stopPropagation()">
     <div id="clientes-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
         <div class="flex justify-between items-center p-4 border-b bg-white rounded-t-xl">
@@ -251,8 +229,7 @@
                 <p class="text-slate-500">Carregando histórico...</p>
             </div>
             <div id="clientes-detail-content">
-                <!-- Conteúdo do histórico do cliente será inserido aqui -->
-            </div>
+                </div>
         </div>
     </div>
 </div>
