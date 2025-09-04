@@ -589,3 +589,4 @@ function getWordFrequencyAnalysis(comments) {
   }
   return result;
 }
+
