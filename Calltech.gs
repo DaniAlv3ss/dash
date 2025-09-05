@@ -2,7 +2,6 @@
  * Contém todas as funções do lado do servidor para a página do Dashboard de Calltech.
  * OTIMIZADO: A função principal agora pré-carrega os históricos dos clientes relevantes.
  */
-
 /**
  * Busca e processa os dados para os KPIs, tabela da página Calltech e pré-carrega
  * os históricos de clientes que possuem chamados no período de datas selecionado.
@@ -15,13 +14,16 @@ function getCalltechData(dateRange) {
     const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
     const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
     const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
+    const planilhaDevolucao = SpreadsheetApp.openById(ID_PLANILHA_DEVOLUCAO);
+    const abaDevolucao = planilhaDevolucao.getSheetByName(NOME_ABA_DEVOLUCAO);
 
-    if (!abaManager || !abaAtendimento || !abaNPS) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
+    if (!abaManager || !abaAtendimento || !abaNPS || !abaDevolucao) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
 
     // Carrega todos os dados necessários uma única vez para otimização
     const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
     const allNPSData = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
     const allAtendimentoData = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
+    const allDevolucaoData = abaDevolucao.getRange(2, 1, abaDevolucao.getLastRow() - 1, abaDevolucao.getLastColumn()).getValues();
     
     // ==========================================================
     // PARTE 1: Processamento de KPIs e Tabela de Chamados
@@ -207,6 +209,33 @@ function getCalltechData(dateRange) {
                     });
                 }
             }
+        });
+
+        const INDICES_DEVOLUCAO = {
+          PEDIDO_ID: 0,
+          DATA_NFE: 3,
+          PRODUTO: 10,
+          VALOR_DEVOLUCAO: 24,
+          MOTIVO: 26,
+        };
+
+        allDevolucaoData.forEach(row => {
+          const pedidoId = row[INDICES_DEVOLUCAO.PEDIDO_ID]?.toString().trim();
+          const mapping = orderToEmailMap.get(pedidoId);
+          if (mapping && customerHistories[mapping.email]) {
+            const dateValue = row[INDICES_DEVOLUCAO.DATA_NFE];
+            if (dateValue instanceof Date) {
+              customerHistories[mapping.email].name = customerHistories[mapping.email].name || mapping.name;
+              customerHistories[mapping.email].history.push({
+                type: 'Devolucao',
+                date: dateValue,
+                pedidoId: pedidoId,
+                produto: row[INDICES_DEVOLUCAO.PRODUTO],
+                motivo: row[INDICES_DEVOLUCAO.MOTIVO],
+                valor: row[INDICES_DEVOLUCAO.VALOR_DEVOLUCAO]
+              });
+            }
+          }
         });
         
         Object.values(customerHistories).forEach(customer => {
