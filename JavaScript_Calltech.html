@@ -286,7 +286,7 @@ function displayCalltechPage() {
     nextBtn.disabled = endIndex >= filteredCalltechTickets.length;
 }
 
-// --- Funções do Modal de Histórico de Cliente (OTIMIZADAS) ---
+// --- Funções do Modal de Histórico de Cliente (OTIMIZADAS E COM ANIMAÇÃO) ---
 function openClientesModal() {
     const modal = document.getElementById('clientes-modal');
     const modalContent = document.getElementById('clientes-modal-content');
@@ -309,7 +309,6 @@ function closeClientesModal() {
     }, 300);
 }
 
-// MODIFICADO: Esta função agora lê do cache em vez de chamar o servidor.
 function openClientHistory(email) {
     if (!email) {
         alert('E-mail do cliente não encontrado.');
@@ -323,11 +322,8 @@ function openClientHistory(email) {
     const customerData = pageCache.data.customerHistories ? pageCache.data.customerHistories[email.toLowerCase()] : null;
 
     if (customerData) {
-        // Dados encontrados no cache, renderiza imediatamente.
-        // Um pequeno timeout ajuda a UI a parecer mais suave.
         setTimeout(() => renderClientHistory(customerData), 50); 
     } else {
-        // Fallback: Caso o cliente não tenha sido pré-carregado.
         setTimeout(() => {
             document.getElementById('clientes-detail-loader').style.display = 'none';
             document.getElementById('clientes-detail-content').innerHTML = '<p class="text-center text-slate-500">O histórico para este cliente não foi encontrado no carregamento inicial. Verifique o filtro de datas.</p>';
@@ -335,77 +331,137 @@ function openClientHistory(email) {
     }
 }
 
-// NOVA FUNÇÃO (lógica movida de onClientHistoryReceived)
 function renderClientHistory(customer) {
     document.getElementById('clientes-detail-loader').style.display = 'none';
-    if (!customer) {
-        document.getElementById('clientes-detail-content').innerHTML = '<p class="text-center text-slate-500">Nenhum histórico encontrado para este cliente.</p>';
+    const detailContainer = document.getElementById('clientes-detail-content');
+    
+    if (!customer || !customer.history || customer.history.length === 0) {
+        detailContainer.innerHTML = `
+            <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
+                <h3 class="font-bold text-lg text-slate-800">${customer.name || 'Cliente'}</h3>
+                <p class="text-sm text-slate-500">${customer.email || 'E-mail não disponível'}</p>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+                <p class="text-sm text-slate-400 text-center">Nenhum registro de histórico encontrado.</p>
+            </div>
+        `;
         return;
     }
-
-    const detailContainer = document.getElementById('clientes-detail-content');
-    const historyHtml = customer.history.map(item => createHistoryItem(item)).join('');
+    
+    // Gera o HTML para cada item da timeline, passando o índice para a função de criação
+    const historyHtml = customer.history.map((item, index) => createHistoryItem(item, index, customer.history.length)).join('');
     
     detailContainer.innerHTML = `
         <div class="bg-white rounded-xl shadow-sm p-4 mb-4">
             <h3 class="font-bold text-lg text-slate-800">${customer.name}</h3>
             <p class="text-sm text-slate-500">${customer.email}</p>
         </div>
-        <div class="space-y-4">
-            ${historyHtml || '<div class="bg-white rounded-xl shadow-sm p-4"><p class="text-sm text-slate-400">Nenhum registro de histórico encontrado.</p></div>'}
+        <div class="space-y-2">
+            ${historyHtml}
         </div>
     `;
+
+    // Aplica a animação escalonada
+    const animatedCards = detailContainer.querySelectorAll('.timeline-card-animated');
+    animatedCards.forEach((card, index) => {
+        card.style.animationDelay = `${index * 0.15}s`;
+    });
 }
 
-function createHistoryItem(item){
+
+function createHistoryItem(item, index, totalItems){
     const formattedDate = item.date ? new Date(item.date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'}) : 'Data Inválida';
-    const iconNPS = `<div class="bg-blue-100 rounded-full p-2"><svg class="w-6 h-6 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.17 48.17 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" /></svg></div>`;
-    const iconChamado = `<div class="bg-red-100 rounded-full p-2"><svg class="w-6 h-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" /></svg></div>`;
-    const iconAtendimento = `<div class="bg-green-100 rounded-full p-2"><svg class="w-6 h-6 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193l-3.72.372a11.945 11.945 0 01-1.066 2.277a2.25 2.25 0 01-3.916 0l-1.066-2.277-3.72-.372A2.25 2.25 0 013 15.082V10.608c0-.97.616-1.813 1.5-2.097m14.25-1.122L11.25 4.5l-7.5 4.5v8.25c0 .633.513 1.125 1.125 1.125h16.5c.612 0 1.125-.492 1.125-1.125v-8.25z" /></svg></div>`;
     
+    // Define se a linha vertical deve continuar ou parar
+    const isLastItem = index === totalItems - 1;
+    const lineClass = isLastItem ? 'h-0' : '-bottom-2'; // Fim da linha para o último item
+    const lineDiv = `<div class="absolute left-5 top-5 ${lineClass} w-0.5 bg-slate-200"></div>`;
+
+    // --- ÍCONES ---
+    const iconNPS = `
+        <div class="bg-blue-100 rounded-full p-2">
+            <svg class="w-6 h-6 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+            </svg>
+        </div>`;
+        
+    const iconAtendimento = `
+        <div class="bg-green-100 rounded-full p-2">
+            <svg class="w-6 h-6 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+            </svg>
+        </div>`;
+        
+    const iconChamado = `
+        <div class="bg-red-100 rounded-full p-2">
+            <svg class="w-6 h-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" /></svg>
+        </div>`;
+
+    const iconDevolucao = `
+        <div class="bg-purple-100 rounded-full p-2">
+            <svg class="w-6 h-6 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+            </svg>
+        </div>`;
+    
+    let iconHtml = '';
     let contentHtml = '';
 
     switch(item.type){
         case 'NPS':
+            iconHtml = iconNPS;
             const classificationClasses = { promotor: 'bg-emerald-100 text-emerald-800', neutro: 'bg-amber-100 text-amber-800', detrator: 'bg-red-100 text-red-800' };
             const badgeClass = classificationClasses[item.classificacao?.toLowerCase()] || 'bg-slate-100 text-slate-800';
             contentHtml = `
-                <div class="history-item-grid bg-white p-4 rounded-xl shadow-sm">
-                   <div class="history-item-icon">${iconNPS}</div>
-                   <div class="history-item-content">
-                       <p class="font-semibold text-slate-700">Avaliação NPS <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
-                       <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} - <span class="px-2 py-0.5 text-xs font-medium rounded-full capitalize ${badgeClass}">${item.classificacao}</span></p>
-                       ${item.comentario ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">"${item.comentario}"</p>` : ''}
-                   </div>
-                </div>`;
+               <p class="font-semibold text-slate-700">Avaliação NPS <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+               <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} - <span class="px-2 py-0.5 text-xs font-medium rounded-full capitalize ${badgeClass}">${item.classificacao}</span></p>
+               ${item.comentario ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">"${item.comentario}"</p>` : ''}
+            `;
             break;
         case 'Chamado':
-             const isClosed = item.status?.toLowerCase().includes('finalizado') || item.status?.toLowerCase().includes('resolvido');
-             const statusClass = isClosed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
+            iconHtml = iconChamado;
+            const isClosed = item.status?.toLowerCase().includes('finalizado') || item.status?.toLowerCase().includes('resolvido');
+            const statusClassChamado = isClosed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
             contentHtml = `
-                <div class="history-item-grid bg-white p-4 rounded-xl shadow-sm">
-                   <div class="history-item-icon">${iconChamado}</div>
-                   <div class="history-item-content">
-                       <p class="font-semibold text-slate-700">Abertura de Chamado <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
-                       <p class="text-sm text-slate-600">Chamado: ${item.chamadoId} | Pedido: ${item.pedidoId || 'N/A'}</p>
-                       <p class="text-sm text-slate-600">Status: <span class="px-2 py-0.5 text-xs font-medium rounded-full ${statusClass}">${item.status}</span> ${item.dataFinalizacao ? `- Finalizado em: ${item.dataFinalizacao.split(' ')[0]}` : ''}</p>
-                   </div>
-                </div>`;
+               <p class="font-semibold text-slate-700">Abertura de Chamado <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+               <p class="text-sm text-slate-600">Chamado: ${item.chamadoId} | Pedido: ${item.pedidoId || 'N/A'}</p>
+               <p class="text-sm text-slate-600">Status: <span class="px-2 py-0.5 text-xs font-medium rounded-full ${statusClassChamado}">${item.status}</span> ${item.dataFinalizacao ? `- Finalizado em: ${item.dataFinalizacao.split(' ')[0]}` : ''}</p>
+            `;
             break;
         case 'Atendimento':
+            iconHtml = iconAtendimento;
             contentHtml = `
-                <div class="history-item-grid bg-white p-4 rounded-xl shadow-sm">
-                   <div class="history-item-icon">${iconAtendimento}</div>
-                   <div class="history-item-content">
-                       <p class="font-semibold text-slate-700">Atendimento (Forms) <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
-                       <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} | Motivo: <span class="font-medium">${item.resolucao || 'N/A'}</span></p>
-                       <p class="text-sm text-slate-600">Defeito: ${item.defeito || 'N/A'}</p>
-                       ${item.relato ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">Relato: "${item.relato}"</p>` : ''}
-                   </div>
-                </div>`;
+               <p class="font-semibold text-slate-700">Atendimento (Forms) <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+               <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} | Motivo: <span class="font-medium">${item.resolucao || 'N/A'}</span></p>
+               <p class="text-sm text-slate-600">Defeito: ${item.defeito || 'N/A'}</p>
+               ${item.relato ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">Relato: "${item.relato}"</p>` : ''}
+            `;
+            break;
+        case 'Devolucao':
+            iconHtml = iconDevolucao;
+            const valorDevolvido = (typeof item.valor === 'number')
+                ? item.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                : (item.valor || 'N/A');
+            contentHtml = `
+               <p class="font-semibold text-slate-700">Devolução Registrada <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
+               <p class="text-sm text-slate-600">Pedido: ${item.pedidoId || 'N/A'} | Valor: <span class="font-medium">${valorDevolvido}</span></p>
+               <p class="text-sm text-slate-600">Motivo: ${item.motivo || 'Não especificado'}</p>
+               ${item.produto ? `<p class="text-sm text-slate-500 mt-1 italic bg-slate-50 p-2 rounded">Produto: "${item.produto}"</p>` : ''}
+            `;
             break;
     }
-    return contentHtml;
+
+    return `
+        <div class="relative flex items-start">
+            ${lineDiv}
+            <div class="z-10 flex-shrink-0">${iconHtml}</div>
+            <div class="ml-4 w-full timeline-card-animated">
+                <div class="bg-white p-4 rounded-xl shadow-sm">
+                    ${contentHtml}
+                </div>
+            </div>
+        </div>
+    `;
 }
 </script>
 
