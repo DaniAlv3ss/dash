@@ -40,6 +40,7 @@ function initializeCalltechPage() {
             if(calltechCurrentPage * calltechRowsPerPage < filteredCalltechTickets.length) { calltechCurrentPage++; displayCalltechPage(); }
         });
         
+        // --- INÍCIO DA MODIFICAÇÃO ---
         // Filtros da tabela
         document.getElementById('filter-chamado-input').addEventListener('input', () => {
             clearTimeout(filterTimeout);
@@ -49,7 +50,13 @@ function initializeCalltechPage() {
             clearTimeout(filterTimeout);
             filterTimeout = setTimeout(filterCalltechTable, 300);
         });
+
+        // Event Listeners para o novo menu de filtros
+        document.getElementById('status-filter-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'status-filter-popup'));
         document.getElementById('filter-nps-toggle').addEventListener('change', filterCalltechTable);
+        document.getElementById('filter-devolucao-toggle').addEventListener('change', filterCalltechTable);
+        // --- FIM DA MODIFICAÇÃO ---
+
 
         // Busca os dados iniciais
         fetchCalltechData();
@@ -180,7 +187,10 @@ function onCalltechDataReceived(data) {
     }
 
     allCalltechTickets = data.tickets || [];
+    // --- INÍCIO DA MODIFICAÇÃO ---
+    populateStatusFilter(data.uniqueStatuses); // Popula o novo filtro
     filterCalltechTable(); 
+    // --- FIM DA MODIFICAÇÃO ---
 }
 
 function updateResolutionRateCard(resolutionData) {
@@ -224,21 +234,58 @@ function drawDailyFlowChart(chartData) {
     chart.draw(view, options);
 }
 
+// --- INÍCIO DA MODIFICAÇÃO ---
+// Nova função para popular o menu de filtro de status
+function populateStatusFilter(statuses) {
+    const container = document.getElementById('status-filter-options');
+    container.innerHTML = '';
+    if (!statuses || statuses.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400">Nenhum status encontrado.</p>';
+        return;
+    }
+
+    statuses.forEach(status => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center';
+        // Usamos uma codificação simples para criar um ID único para o checkbox
+        const statusId = 'status-' + status.replace(/[^a-zA-Z0-9]/g, '');
+        div.innerHTML = `
+            <input type="checkbox" id="${statusId}" value="${status}" class="status-filter-checkbox h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500">
+            <label for="${statusId}" class="ml-2 text-sm text-slate-600">${status}</label>
+        `;
+        container.appendChild(div);
+    });
+
+    // Adiciona event listeners aos novos checkboxes
+    document.querySelectorAll('.status-filter-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', filterCalltechTable);
+    });
+}
+
 function filterCalltechTable() {
     const chamadoFilter = document.getElementById('filter-chamado-input').value.toLowerCase();
     const pedidoFilter = document.getElementById('filter-pedido-input').value.toLowerCase();
     const npsOnlyFilter = document.getElementById('filter-nps-toggle').checked;
+    const devolucaoOnlyFilter = document.getElementById('filter-devolucao-toggle').checked;
+
+    const selectedStatuses = [];
+    document.querySelectorAll('.status-filter-checkbox:checked').forEach(checkbox => {
+        selectedStatuses.push(checkbox.value);
+    });
 
     filteredCalltechTickets = allCalltechTickets.filter(ticket => {
         const chamadoMatch = (ticket.chamadoId || '').toLowerCase().includes(chamadoFilter);
         const pedidoMatch = (ticket.pedidoId || '').toLowerCase().includes(pedidoFilter);
         const npsMatch = !npsOnlyFilter || ticket.hasNps === true;
-        
-        return chamadoMatch && pedidoMatch && npsMatch;
+        const devolucaoMatch = !devolucaoOnlyFilter || ticket.hasDevolucao === true;
+        const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(ticket.status);
+
+        return chamadoMatch && pedidoMatch && npsMatch && devolucaoMatch && statusMatch;
     });
     calltechCurrentPage = 1;
     displayCalltechPage();
 }
+// --- FIM DA MODIFICAÇÃO ---
 
 function displayCalltechPage() {
     const tbody = document.getElementById('calltech-table-body');
@@ -450,9 +497,6 @@ function createHistoryItem(item, index, totalItems){
         case 'DevolucaoAgrupada':
             iconHtml = iconDevolucao;
             const valorTotalDevolvido = (typeof item.valorTotal === 'number') ? item.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'N/A';
-            // --- INÍCIO DA CORREÇÃO ---
-            // Codifica o JSON para que possa ser passado com segurança como um argumento de string na função onclick.
-            // Isso evita erros de sintaxe se os dados do produto contiverem aspas ou outros caracteres especiais.
             const encodedItems = encodeURIComponent(JSON.stringify(item.itens));
             contentHtml = `
                <div class="cursor-pointer" onclick="openDevolucaoDetailModal('${item.pedidoId}', JSON.parse(decodeURIComponent('${encodedItems}')))">
@@ -461,7 +505,6 @@ function createHistoryItem(item, index, totalItems){
                    <p class="text-sm text-slate-600"><strong>Itens Devolvidos:</strong> ${item.totalItens}</p>
                    <p class="text-sm text-slate-600"><strong>Valor Total Devolvido:</strong> ${valorTotalDevolvido}</p>
                </div>`;
-            // --- FIM DA CORREÇÃO ---
             break;
     }
 
