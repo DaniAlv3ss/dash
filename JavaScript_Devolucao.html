@@ -76,6 +76,7 @@ function onDevolucaoDataReceived(data) {
 
     // Atualiza KPIs
     document.getElementById('kpi-total-devolvido').textContent = (data.kpis.totalDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    document.getElementById('kpi-valor-cancelamento').textContent = (data.kpis.totalCancelado || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     document.getElementById('kpi-pedidos-devolucao').textContent = data.kpis.pedidosComDevolucao || 0;
     document.getElementById('kpi-itens-devolvidos').textContent = data.kpis.totalItensDevolvidos || 0;
     
@@ -86,6 +87,9 @@ function onDevolucaoDataReceived(data) {
 
     // Desenha o gráfico
     drawDevolucoesChart(data.devolucoesPorMes);
+
+    // Renderiza a nova tabela detalhada
+    renderDevolucaoDetalhadaTable(data.devolucaoDetalhada);
 }
 
 function renderTopList(containerId, data, barColor, isProduct = false) {
@@ -119,6 +123,9 @@ function renderTopList(containerId, data, barColor, isProduct = false) {
     });
 }
 
+/**
+ * NOVA VERSÃO DA FUNÇÃO DO GRÁFICO - REESCRITA PARA ESTABILIDADE
+ */
 function drawDevolucoesChart(chartData) {
     const chartDiv = document.getElementById('devolucoes-mes-chart');
     if (!chartDiv) return;
@@ -128,23 +135,149 @@ function drawDevolucoesChart(chartData) {
         return;
     }
     
-    const data = google.visualization.arrayToDataTable(chartData);
+    // Etapa 1: Converter os dados brutos para um formato estável que a biblioteca entende.
+    const dataArray = [
+        ['Mês', 'Valor Devolvido (R$)', { role: 'annotation' }, 'Pedidos Únicos', { role: 'annotation' }]
+    ];
 
+    chartData.slice(1).forEach(([mes, valor, quantidade]) => {
+        const annotationValor = valor > 0 ? valor.toLocaleString('pt-BR', { notation: 'compact', compactDisplay: 'short' }) : '';
+        const annotationQtd = quantidade > 0 ? quantidade.toString() : '';
+        dataArray.push([mes, valor, annotationValor, quantidade, annotationQtd]);
+    });
+
+    const dataTable = google.visualization.arrayToDataTable(dataArray);
+
+    const textStyle = { color: '#1e293b', fontName: 'Inter', fontSize: 12 };
+
+    // Etapa 2: Definir as opções de visualização, focando em estabilidade.
     const options = {
-        legend: { position: 'top', alignment: 'end' },
+        fontName: 'Inter',
+        legend: { position: 'top', maxLines: 3, textStyle: textStyle },
         seriesType: 'bars',
-        series: { 0: { targetAxisIndex: 0, type: 'line', color: '#f97316' } }, // Valor
-        vAxes: {
-            0: { title: 'Valor Devolvido (R$)', format: 'R$ #,##0.00' },
-            1: { title: 'Quantidade de Devoluções' }
+        series: {
+            0: { // Valor (linha)
+                type: 'line', 
+                color: '#FF6000', 
+                targetAxisIndex: 0,
+                lineWidth: 3,
+                pointSize: 6,
+                pointShape: 'circle',
+            },
+            1: { // Pedidos Únicos (barras)
+                type: 'bars', 
+                color: '#00529e', 
+                targetAxisIndex: 1 
+            }
         },
-        hAxis: { title: 'Mês' },
-        chartArea: { left: 100, top: 50, width: '80%', height: '70%' },
-        colors: ['#1d4ed8'] // Cor das barras de Quantidade
+        vAxes: {
+            0: { 
+                title: 'Valor Devolvido (R$)', 
+                format: 'short', 
+                textStyle: textStyle,
+                titleTextStyle: { ...textStyle, bold: true, italic: false },
+                gridlines: { color: '#e2e8f0' },
+                viewWindow: { min: 0 }
+            },
+            1: { 
+                title: 'Pedidos Únicos com Devolução', 
+                gridlines: { color: 'transparent' }, 
+                textStyle: textStyle,
+                titleTextStyle: { ...textStyle, bold: true, italic: false },
+                viewWindow: { min: 0 }
+            }
+        },
+        hAxis: { 
+            textStyle: textStyle,
+            titleTextStyle: { ...textStyle, bold: true, italic: false }
+        },
+        chartArea: { left: 100, top: 60, width: '85%', height: '65%' },
+        bar: { groupWidth: '60%' },
+        // Usar o tooltip padrão, que é mais rápido e não causa travamentos.
+        focusTarget: 'category',
+        // Desativar animações para garantir performance máxima.
+        animation: {
+            startup: false,
+        },
+        annotations: {
+            alwaysOutside: true,
+            textStyle: {
+                fontName: 'Inter',
+                fontSize: 11,
+                color: '#1e293b',
+                auraColor: '#ffffff' 
+            },
+            stem: {
+                color: 'transparent'
+            }
+        }
     };
 
+    // Etapa 3: Desenhar o gráfico.
     const chart = new google.visualization.ComboChart(chartDiv);
-    chart.draw(data, options);
+    chart.draw(dataTable, options);
+}
+
+function renderDevolucaoDetalhadaTable(detalhes) {
+    const thead = document.getElementById('devolucao-detalhada-thead');
+    const tbody = document.getElementById('devolucao-detalhada-tbody');
+
+    if (!thead || !tbody || !detalhes) {
+        if(tbody) tbody.innerHTML = '<tr><td colspan="99">Erro ao carregar dados detalhados.</td></tr>';
+        return;
+    }
+
+    // Limpa conteúdo anterior
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+
+    if (!detalhes.linhas || detalhes.linhas.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-500">Nenhum item devolvido no período selecionado.</td></tr>';
+        // Still render a minimal header
+        thead.innerHTML = `
+            <tr>
+                <th class="p-3">CF</th>
+                <th class="p-3">Produto</th>
+                <th class="p-3">Total Retornado</th>
+            </tr>
+        `;
+        return;
+    }
+
+    // Monta o cabeçalho dinamicamente
+    const cabecalhosMotivos = detalhes.cabecalhos || [];
+    let headerHtml = '<tr>';
+    headerHtml += '<th class="p-3">CF</th>';
+    headerHtml += '<th class="p-3">Produto</th>';
+    headerHtml += '<th class="p-3 text-center">Total Retornado</th>';
+    cabecalhosMotivos.forEach(motivo => {
+        headerHtml += `<th class="p-3 text-center">${motivo}</th>`;
+    });
+    headerHtml += '</tr>';
+    thead.innerHTML = headerHtml;
+
+    // Monta as linhas da tabela
+    let bodyHtml = '';
+    detalhes.linhas.forEach(produto => {
+        // Limita o nome do produto para não quebrar o layout
+        const nomeProdutoCurto = produto.nome.length > 80 ? produto.nome.substring(0, 80) + '...' : produto.nome;
+
+        bodyHtml += `<tr class="border-b hover:bg-slate-50">`;
+        bodyHtml += `<td class="p-3 font-mono text-xs">${produto.cf}</td>`;
+        bodyHtml += `<td class="p-3" title="${produto.nome}">${nomeProdutoCurto}</td>`;
+        bodyHtml += `<td class="p-3 font-bold text-center">${produto.total}</td>`;
+
+        // Itera sobre os cabeçalhos para garantir a ordem correta das colunas de motivo
+        cabecalhosMotivos.forEach(motivo => {
+            const contagem = produto.motivos[motivo] || 0;
+            bodyHtml += `<td class="p-3 text-center">${contagem}</td>`;
+        });
+
+        bodyHtml += `</tr>`;
+    });
+
+    tbody.innerHTML = bodyHtml;
 }
 
 </script>
+
