@@ -211,13 +211,11 @@ function getCalltechData(dateRange) {
             }
         });
 
+        // --- INÍCIO DA MODIFICAÇÃO: Agrupamento de devoluções ---
         const INDICES_DEVOLUCAO = {
-          PEDIDO_ID: 0,
-          DATA_NFE: 3,
-          PRODUTO: 10,
-          VALOR_DEVOLUCAO: 24,
-          MOTIVO: 26,
+          PEDIDO_ID: 0, DATA_NFE: 3, PRODUTO: 10, VALOR_DEVOLUCAO: 24, MOTIVO: 26,
         };
+        const devolucoesPorClienteEPedido = {};
 
         allDevolucaoData.forEach(row => {
           const pedidoId = row[INDICES_DEVOLUCAO.PEDIDO_ID]?.toString().trim();
@@ -225,11 +223,12 @@ function getCalltechData(dateRange) {
           if (mapping && customerHistories[mapping.email]) {
             const dateValue = row[INDICES_DEVOLUCAO.DATA_NFE];
             if (dateValue instanceof Date) {
-              customerHistories[mapping.email].name = customerHistories[mapping.email].name || mapping.name;
-              customerHistories[mapping.email].history.push({
-                type: 'Devolucao',
+              const email = mapping.email;
+              if (!devolucoesPorClienteEPedido[email]) { devolucoesPorClienteEPedido[email] = {}; }
+              if (!devolucoesPorClienteEPedido[email][pedidoId]) { devolucoesPorClienteEPedido[email][pedidoId] = []; }
+              
+              devolucoesPorClienteEPedido[email][pedidoId].push({
                 date: dateValue,
-                pedidoId: pedidoId,
                 produto: row[INDICES_DEVOLUCAO.PRODUTO],
                 motivo: row[INDICES_DEVOLUCAO.MOTIVO],
                 valor: row[INDICES_DEVOLUCAO.VALOR_DEVOLUCAO]
@@ -238,9 +237,45 @@ function getCalltechData(dateRange) {
           }
         });
         
+        for (const email in devolucoesPorClienteEPedido) {
+          if (customerHistories[email]) {
+            for (const pedidoId in devolucoesPorClienteEPedido[email]) {
+              const items = devolucoesPorClienteEPedido[email][pedidoId];
+              if (items.length > 0) {
+                const totalValue = items.reduce((sum, item) => {
+                  const valorStr = (item.valor || '0').toString().replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
+                  const valorNumerico = parseFloat(valorStr);
+                  return sum + (isNaN(valorNumerico) ? 0 : valorNumerico);
+                }, 0);
+
+                items.sort((a, b) => b.date - a.date);
+
+                customerHistories[email].history.push({
+                  type: 'DevolucaoAgrupada',
+                  date: items[0].date,
+                  pedidoId: pedidoId,
+                  totalItens: items.length,
+                  valorTotal: totalValue,
+                  itens: items.map(item => ({
+                    produto: item.produto,
+                    motivo: item.motivo,
+                    valor: item.valor
+                  }))
+                });
+              }
+            }
+          }
+        }
+        // --- FIM DA MODIFICAÇÃO ---
+        
         Object.values(customerHistories).forEach(customer => {
             customer.history.sort((a, b) => b.date - a.date);
             customer.history.forEach(item => {
+                if (item.type === 'DevolucaoAgrupada') {
+                  item.itens.forEach(subItem => {
+                    subItem.date = (subItem.date instanceof Date && !isNaN(subItem.date)) ? subItem.date.toISOString() : null;
+                  });
+                }
                 item.date = (item.date instanceof Date && !isNaN(item.date)) ? item.date.toISOString() : null;
             });
         });
@@ -250,7 +285,7 @@ function getCalltechData(dateRange) {
       tickets: tickets,
       kpis: { total: tickets.length, open: openTickets, closed: closedTickets, avgTime: avgResolutionTime, retentionValue, npsFeedback, postServiceNps },
       resolutionRate,
-      customerHistories // Retorna o objeto de históricos pré-carregado
+      customerHistories
     };
   } catch (e) {
     Logger.log(`Erro fatal em getCalltechData: ${e.stack}`);
