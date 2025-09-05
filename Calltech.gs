@@ -37,6 +37,17 @@ function getCalltechData(dateRange) {
             npsMap.set(pedidoId, classification);
         }
     });
+
+    // --- INÍCIO DA MODIFICAÇÃO ---
+    const devolucoesPedidoIds = new Set();
+    allDevolucaoData.forEach(row => {
+      const pedidoId = row[0]?.toString().trim(); // INDICE 0 é PEDIDO_ID em Devolucao.gs
+      if (pedidoId) {
+        devolucoesPedidoIds.add(pedidoId);
+      }
+    });
+    const allStatuses = new Set();
+    // --- FIM DA MODIFICAÇÃO ---
     
     let openTickets = 0, closedTickets = 0, totalResolutionTime = 0, resolvedTicketsCount = 0;
     const resolutionCounts = { day0: 0, day1: 0, day2: 0, day3: 0, day4plus: 0 };
@@ -59,6 +70,7 @@ function getCalltechData(dateRange) {
         const openDateISO = openDate.toISOString().split('T')[0];
         if (openDateISO >= dateRange.start && openDateISO <= dateRange.end) {
           const status = row[INDICES_CALLTECH.STATUS] || "";
+          if (status) allStatuses.add(status); // Adiciona status ao Set
           const closeDateStr = row[INDICES_CALLTECH.DATA_FINALIZACAO];
           const isClosed = status.toLowerCase().includes('finalizado') || status.toLowerCase().includes('resolvido');
           const pedidoId = row[INDICES_CALLTECH.PEDIDO_ID]?.trim();
@@ -92,7 +104,8 @@ function getCalltechData(dateRange) {
             cliente: row[INDICES_CALLTECH.CLIENTE],
             dataFinalizacao: closeDateStr ? closeDateStr.split(' ')[0] : '',
             email: row[INDICES_CALLTECH.EMAIL],
-            hasNps: npsMap.has(pedidoId)
+            hasNps: npsMap.has(pedidoId),
+            hasDevolucao: devolucoesPedidoIds.has(pedidoId) // Nova propriedade
           });
 
           if (pedidoId && !ticketPedidoIds.has(pedidoId)) {
@@ -281,15 +294,18 @@ function getCalltechData(dateRange) {
         });
     }
 
+    const uniqueStatuses = Array.from(allStatuses).sort();
+
     return {
       tickets: tickets,
       kpis: { total: tickets.length, open: openTickets, closed: closedTickets, avgTime: avgResolutionTime, retentionValue, npsFeedback, postServiceNps },
       resolutionRate,
-      customerHistories
+      customerHistories,
+      uniqueStatuses // Retorna os status únicos para o frontend
     };
   } catch (e) {
     Logger.log(`Erro fatal em getCalltechData: ${e.stack}`);
-    return { tickets: [], kpis: {}, resolutionRate: {}, customerHistories: {} };
+    return { tickets: [], kpis: {}, resolutionRate: {}, customerHistories: {}, uniqueStatuses: [] };
   }
 }
 
@@ -346,3 +362,5 @@ function getDailyFlowChartData(dateRange) {
     return [['Dia', 'Abertos', 'Fechados']];
   }
 }
+
+
