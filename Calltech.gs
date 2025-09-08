@@ -1,365 +1,147 @@
 /**
- * Contém todas as funções do lado do servidor para a página do Dashboard de Calltech.
- * OTIMIZADO: A função principal agora pré-carrega os históricos dos clientes relevantes.
+ * Script Principal para servir o aplicativo da web e conter funções/constantes globais.
+ * @version 2.2 - Revisão completa com Cache e Pré-carregamento de Dados
  */
+
+// === CENTRAL DE CONFIGURAÇÕES GLOBAIS ===
+const ID_PLANILHA_NPS = "1ewRARy4u4V0MJMoup0XbPlLLUrdPmR4EZwRwmy_ZECM";
+const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
+const ID_PLANILHA_DEVOLUCAO = "1m3tOvmSOJIvRZY9uZNf1idSTEnUFbHIWPNh5tiHkKe0";
+
+
+// Nomes das abas
+const NOME_ABA_NPS = "Avaliações 2025";
+const NOME_ABA_ACOES = "ações 2025";
+const NOME_ABA_ATENDIMENTO = "Forms";
+const NOME_ABA_OS = "NPS Datas";
+const NOME_ABA_MANAGER = "Pedidos Manager";
+const NOME_ABA_DEVOLUCAO = "Base Devolução";
+
+// Índices de colunas (mantidos aqui para referência global, se necessário)
+const INDICES_NPS = {
+  DATA_AVALIACAO: 2,  // Coluna C
+  CLASSIFICACAO: 5,   // Coluna F
+  CLIENTE: 12,        // Coluna M
+  EMAIL: 15,          // Coluna P
+  PEDIDO_ID: 32,      // Coluna AG
+  COMENTARIO: 48,     // Coluna AW
+  MOTIVO_FUNCIONAMENTO: 39,
+  MOTIVO_QUALIDADE_MONTAGEM: 45,
+  MOTIVO_VISUAL_PC: 43,
+  MOTIVO_TRANSPORTE: 47
+};
+
+const INDICES_ATENDIMENTO = {
+  PEDIDO_ID: 2,
+  RESOLUCAO: 4,       // Coluna E
+  STATUS_ATENDIMENTO: 5, // Coluna F
+  VALOR_RETIDO: 6,       // Coluna G
+  DEFEITO: 7,         // Coluna H
+  RELATO_CLIENTE: 8,  // Coluna I
+  DATA_ATENDIMENTO: 0,
+  OS: 14
+};
+
+const INDICES_OS = {
+  PEDIDO_ID: 2,
+  OS: 3         // Coluna D
+};
+
+const INDICES_CALLTECH = {
+  EMAIL: 0,               // Coluna A
+  STATUS: 2,              // Coluna C
+  CHAMADO_ID: 3,          // Coluna D
+  DATA_ABERTURA: 6,       // Coluna G
+  PEDIDO_ID: 12,            // Coluna M
+  CLIENTE: 14,
+  DATA_FINALIZACAO: 16    // Coluna Q
+};
+// =========================================
+
+// OTIMIZAÇÃO: Duração do cache em segundos (900s = 15 minutos)
+const CACHE_EXPIRATION_SECONDS = 900;
+
 /**
- * Busca e processa os dados para os KPIs, tabela da página Calltech e pré-carrega
- * os históricos de clientes que possuem chamados no período de datas selecionado.
- * Esta abordagem unificada melhora drasticamente a performance ao visualizar o histórico de um cliente.
+ * UTILITY: Obtém dados do cache ou busca-os se não existirem, depois armazena no cache.
+ * @param {string} cacheKey A chave única para os dados no cache.
+ * @param {function} dataFetchFunction A função que busca os dados frescos.
+ * @param {Array<any>} functionArgs Os argumentos para a dataFetchFunction.
+ * @returns {Object} Os dados (do cache ou frescos).
  */
-function getCalltechData(dateRange) {
-  try {
-    const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
-    const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
-    const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
-    const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
-    const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
-    const planilhaDevolucao = SpreadsheetApp.openById(ID_PLANILHA_DEVOLUCAO);
-    const abaDevolucao = planilhaDevolucao.getSheetByName(NOME_ABA_DEVOLUCAO);
+function getOrSetCache(cacheKey, dataFetchFunction, functionArgs) {
+  const cache = CacheService.getScriptCache();
+  const cachedData = cache.get(cacheKey);
 
-    if (!abaManager || !abaAtendimento || !abaNPS || !abaDevolucao) throw new Error(`Uma ou mais abas necessárias não foram encontradas.`);
-
-    // Carrega todos os dados necessários uma única vez para otimização
-    const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
-    const allNPSData = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getDisplayValues();
-    const allAtendimentoData = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getDisplayValues();
-    const allDevolucaoData = abaDevolucao.getRange(2, 1, abaDevolucao.getLastRow() - 1, abaDevolucao.getLastColumn()).getValues();
-    
-    // ==========================================================
-    // PARTE 1: Processamento de KPIs e Tabela de Chamados
-    // ==========================================================
-    const npsMap = new Map();
-    getUniqueValidRows(allNPSData, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO)
-      .forEach(row => {
-        const pedidoId = row[INDICES_NPS.PEDIDO_ID]?.trim();
-        const classification = row[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
-        if (pedidoId && classification) {
-            npsMap.set(pedidoId, classification);
-        }
-    });
-
-    // --- INÍCIO DA MODIFICAÇÃO ---
-    const devolucoesPedidoIds = new Set();
-    allDevolucaoData.forEach(row => {
-      const pedidoId = row[0]?.toString().trim(); // INDICE 0 é PEDIDO_ID em Devolucao.gs
-      if (pedidoId) {
-        devolucoesPedidoIds.add(pedidoId);
-      }
-    });
-    const allStatuses = new Set();
-    // --- FIM DA MODIFICAÇÃO ---
-    
-    let openTickets = 0, closedTickets = 0, totalResolutionTime = 0, resolvedTicketsCount = 0;
-    const resolutionCounts = { day0: 0, day1: 0, day2: 0, day3: 0, day4plus: 0 };
-    const tickets = [];
-    const npsFeedback = { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
-    const postServiceNps = { total: 0, promoters: 0, neutrals: 0, detractors: 0 };
-    const ticketPedidoIds = new Set(), closedTicketPedidoIds = new Set();
-    const customerEmailsInPeriod = new Set(); // Coleta e-mails para pré-carregamento do histórico
-
-    allManagerData.forEach((row, index) => {
-      const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
-      const chamadoId = row[INDICES_CALLTECH.CHAMADO_ID];
-      if (!chamadoId || !openDateStr) return;
-
-      try {
-        const [day, month, year] = openDateStr.split(' ')[0].split('/');
-        const openDate = new Date(year, month - 1, day);
-        if (isNaN(openDate.getTime())) return;
-
-        const openDateISO = openDate.toISOString().split('T')[0];
-        if (openDateISO >= dateRange.start && openDateISO <= dateRange.end) {
-          const status = row[INDICES_CALLTECH.STATUS] || "";
-          if (status) allStatuses.add(status); // Adiciona status ao Set
-          const closeDateStr = row[INDICES_CALLTECH.DATA_FINALIZACAO];
-          const isClosed = status.toLowerCase().includes('finalizado') || status.toLowerCase().includes('resolvido');
-          const pedidoId = row[INDICES_CALLTECH.PEDIDO_ID]?.trim();
-          const email = row[INDICES_CALLTECH.EMAIL]?.toString().trim().toLowerCase();
-
-          if (email) { customerEmailsInPeriod.add(email); }
-
-          if (isClosed) {
-            closedTickets++;
-            if (closeDateStr) {
-              const [closeDay, closeMonth, closeYear] = closeDateStr.split(' ')[0].split('/');
-              const closeDate = new Date(closeYear, closeMonth - 1, closeDay);
-              if (!isNaN(closeDate.getTime())) {
-                const diffDays = Math.ceil(Math.abs(closeDate - openDate) / (1000 * 60 * 60 * 24));
-                totalResolutionTime += diffDays;
-                resolvedTicketsCount++;
-                if (diffDays === 0) resolutionCounts.day0++;
-                else if (diffDays === 1) resolutionCounts.day1++;
-                else if (diffDays === 2) resolutionCounts.day2++;
-                else if (diffDays === 3) resolutionCounts.day3++;
-                else resolutionCounts.day4plus++;
-              }
-            }
-          } else {
-            openTickets++;
-          }
-
-          tickets.push({
-            status, chamadoId, pedidoId,
-            dataAbertura: openDateStr.split(' ')[0],
-            cliente: row[INDICES_CALLTECH.CLIENTE],
-            dataFinalizacao: closeDateStr ? closeDateStr.split(' ')[0] : '',
-            email: row[INDICES_CALLTECH.EMAIL],
-            hasNps: npsMap.has(pedidoId),
-            hasDevolucao: devolucoesPedidoIds.has(pedidoId) // Nova propriedade
-          });
-
-          if (pedidoId && !ticketPedidoIds.has(pedidoId)) {
-              if (npsMap.has(pedidoId)) {
-                  const c = npsMap.get(pedidoId);
-                  npsFeedback.total++;
-                  if (c === 'promotor') npsFeedback.promoters++; else if (c === 'neutro') npsFeedback.neutrals++; else if (c === 'detrator') npsFeedback.detractors++;
-              }
-              ticketPedidoIds.add(pedidoId);
-          }
-
-          if (isClosed && pedidoId && !closedTicketPedidoIds.has(pedidoId)) {
-            if (npsMap.has(pedidoId)) {
-              const c = npsMap.get(pedidoId);
-              postServiceNps.total++;
-              if (c === 'promotor') postServiceNps.promoters++; else if (c === 'neutro') postServiceNps.neutrals++; else if (c === 'detrator') postServiceNps.detractors++;
-            }
-            closedTicketPedidoIds.add(pedidoId);
-          }
-        }
-      } catch (e) {
-        Logger.log(`Erro ao processar linha ${index + 2} da planilha Manager: ${e.message}`);
-      }
-    });
-
-    const avgResolutionTime = resolvedTicketsCount > 0 ? (totalResolutionTime / resolvedTicketsCount).toFixed(1) : 0;
-    const resolutionRate = {};
-    for (const day in resolutionCounts) {
-      const count = resolutionCounts[day];
-      resolutionRate[day] = { count, percentage: resolvedTicketsCount > 0 ? (count / resolvedTicketsCount) * 100 : 0 };
-    }
-    postServiceNps.npsScore = postServiceNps.total > 0 ? parseFloat((((postServiceNps.promoters - postServiceNps.detractors) / postServiceNps.total) * 100).toFixed(1)) : 0;
-    let retentionValue = 0;
-    allAtendimentoData.forEach(row => {
-      const dateStr = row[INDICES_ATENDIMENTO.DATA_ATENDIMENTO];
-      if (!dateStr) return;
-      try {
-        const [day, month, year] = dateStr.split(' ')[0].split('/');
-        const atendimentoDate = new Date(year, month - 1, day);
-        const atendimentoDateISO = atendimentoDate.toISOString().split('T')[0];
-        if (atendimentoDateISO >= dateRange.start && atendimentoDateISO <= dateRange.end) {
-          if (row[INDICES_ATENDIMENTO.STATUS_ATENDIMENTO] === "Retido no Atendimento (MSPC)") {
-            const valorNumerico = parseFloat((row[INDICES_ATENDIMENTO.VALOR_RETIDO] || '0').replace('R$', '').replace(/\./g, '').replace(',', '.').trim());
-            if (!isNaN(valorNumerico)) retentionValue += valorNumerico;
-          }
-        }
-      } catch (e) { /* Ignora linhas com datas inválidas */ }
-    });
-
-    // ==========================================================
-    // PARTE 2: Pré-carregamento dos históricos de clientes
-    // ==========================================================
-    const customerHistories = {};
-    if (customerEmailsInPeriod.size > 0) {
-        
-        customerEmailsInPeriod.forEach(email => {
-            customerHistories[email] = { name: '', email: email, history: [] };
-        });
-
-        const orderToEmailMap = new Map();
-        allManagerData.forEach(row => {
-            const email = row[INDICES_CALLTECH.EMAIL]?.toString().trim().toLowerCase();
-            const pedidoId = row[INDICES_CALLTECH.PEDIDO_ID]?.toString().trim();
-            const name = row[INDICES_CALLTECH.CLIENTE]?.toString().trim();
-            if (email && pedidoId) orderToEmailMap.set(pedidoId, { email, name });
-        });
-        allNPSData.forEach(row => {
-            const email = row[INDICES_NPS.EMAIL]?.toString().trim().toLowerCase();
-            const pedidoId = row[INDICES_NPS.PEDIDO_ID]?.toString().trim();
-            const name = row[INDICES_NPS.CLIENTE]?.toString().trim();
-            if (email && pedidoId && !orderToEmailMap.has(pedidoId)) orderToEmailMap.set(pedidoId, { email, name });
-        });
-
-        allNPSData.forEach(row => {
-            const email = row[INDICES_NPS.EMAIL]?.toString().trim().toLowerCase();
-            if (customerHistories[email]) {
-                const dateStr = row[INDICES_NPS.DATA_AVALIACAO];
-                if (dateStr) {
-                    customerHistories[email].name = customerHistories[email].name || row[INDICES_NPS.CLIENTE]?.toString().trim();
-                    customerHistories[email].history.push({
-                      type: 'NPS', date: new Date(dateStr.split(' ')[0]), pedidoId: row[INDICES_NPS.PEDIDO_ID],
-                      classificacao: row[INDICES_NPS.CLASSIFICACAO], comentario: row[INDICES_NPS.COMENTARIO]
-                    });
-                }
-            }
-        });
-
-        allManagerData.forEach(row => {
-            const email = row[INDICES_CALLTECH.EMAIL]?.toString().trim().toLowerCase();
-            if (customerHistories[email]) {
-                const dateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
-                if (dateStr) {
-                    customerHistories[email].name = customerHistories[email].name || row[INDICES_CALLTECH.CLIENTE]?.toString().trim();
-                    customerHistories[email].history.push({
-                      type: 'Chamado', date: new Date(dateStr.split(' ')[0].split('/').reverse().join('-')),
-                      chamadoId: row[INDICES_CALLTECH.CHAMADO_ID], pedidoId: row[INDICES_CALLTECH.PEDIDO_ID],
-                      status: row[INDICES_CALLTECH.STATUS], dataFinalizacao: row[INDICES_CALLTECH.DATA_FINALIZACAO]
-                    });
-                }
-            }
-        });
-
-        allAtendimentoData.forEach(row => {
-            const pedidoId = row[INDICES_ATENDIMENTO.PEDIDO_ID]?.toString().trim();
-            const mapping = orderToEmailMap.get(pedidoId);
-            if (mapping && customerHistories[mapping.email]) {
-                const dateStr = row[INDICES_ATENDIMENTO.DATA_ATENDIMENTO];
-                if (dateStr) {
-                    customerHistories[mapping.email].name = customerHistories[mapping.email].name || mapping.name;
-                    customerHistories[mapping.email].history.push({
-                      type: 'Atendimento', date: new Date(dateStr.split(' ')[0].split('/').reverse().join('-')),
-                      pedidoId: pedidoId, resolucao: row[INDICES_ATENDIMENTO.RESOLUCAO],
-                      defeito: row[INDICES_ATENDIMENTO.DEFEITO], relato: row[INDICES_ATENDIMENTO.RELATO_CLIENTE]
-                    });
-                }
-            }
-        });
-
-        // --- INÍCIO DA MODIFICAÇÃO: Agrupamento de devoluções ---
-        const INDICES_DEVOLUCAO = {
-          PEDIDO_ID: 0, DATA_NFE: 3, PRODUTO: 10, VALOR_DEVOLUCAO: 24, MOTIVO: 26,
-        };
-        const devolucoesPorClienteEPedido = {};
-
-        allDevolucaoData.forEach(row => {
-          const pedidoId = row[INDICES_DEVOLUCAO.PEDIDO_ID]?.toString().trim();
-          const mapping = orderToEmailMap.get(pedidoId);
-          if (mapping && customerHistories[mapping.email]) {
-            const dateValue = row[INDICES_DEVOLUCAO.DATA_NFE];
-            if (dateValue instanceof Date) {
-              const email = mapping.email;
-              if (!devolucoesPorClienteEPedido[email]) { devolucoesPorClienteEPedido[email] = {}; }
-              if (!devolucoesPorClienteEPedido[email][pedidoId]) { devolucoesPorClienteEPedido[email][pedidoId] = []; }
-              
-              devolucoesPorClienteEPedido[email][pedidoId].push({
-                date: dateValue,
-                produto: row[INDICES_DEVOLUCAO.PRODUTO],
-                motivo: row[INDICES_DEVOLUCAO.MOTIVO],
-                valor: row[INDICES_DEVOLUCAO.VALOR_DEVOLUCAO]
-              });
-            }
-          }
-        });
-        
-        for (const email in devolucoesPorClienteEPedido) {
-          if (customerHistories[email]) {
-            for (const pedidoId in devolucoesPorClienteEPedido[email]) {
-              const items = devolucoesPorClienteEPedido[email][pedidoId];
-              if (items.length > 0) {
-                const totalValue = items.reduce((sum, item) => {
-                  const valorStr = (item.valor || '0').toString().replace('R$', '').replace(/\./g, '').replace(',', '.').trim();
-                  const valorNumerico = parseFloat(valorStr);
-                  return sum + (isNaN(valorNumerico) ? 0 : valorNumerico);
-                }, 0);
-
-                items.sort((a, b) => b.date - a.date);
-
-                customerHistories[email].history.push({
-                  type: 'DevolucaoAgrupada',
-                  date: items[0].date,
-                  pedidoId: pedidoId,
-                  totalItens: items.length,
-                  valorTotal: totalValue,
-                  itens: items.map(item => ({
-                    produto: item.produto,
-                    motivo: item.motivo,
-                    valor: item.valor
-                  }))
-                });
-              }
-            }
-          }
-        }
-        // --- FIM DA MODIFICAÇÃO ---
-        
-        Object.values(customerHistories).forEach(customer => {
-            customer.history.sort((a, b) => b.date - a.date);
-            customer.history.forEach(item => {
-                if (item.type === 'DevolucaoAgrupada') {
-                  item.itens.forEach(subItem => {
-                    subItem.date = (subItem.date instanceof Date && !isNaN(subItem.date)) ? subItem.date.toISOString() : null;
-                  });
-                }
-                item.date = (item.date instanceof Date && !isNaN(item.date)) ? item.date.toISOString() : null;
-            });
-        });
-    }
-
-    const uniqueStatuses = Array.from(allStatuses).sort();
-
-    return {
-      tickets: tickets,
-      kpis: { total: tickets.length, open: openTickets, closed: closedTickets, avgTime: avgResolutionTime, retentionValue, npsFeedback, postServiceNps },
-      resolutionRate,
-      customerHistories,
-      uniqueStatuses // Retorna os status únicos para o frontend
-    };
-  } catch (e) {
-    Logger.log(`Erro fatal em getCalltechData: ${e.stack}`);
-    return { tickets: [], kpis: {}, resolutionRate: {}, customerHistories: {}, uniqueStatuses: [] };
+  if (cachedData) {
+    Logger.log(`CACHE HIT: Chave: ${cacheKey}`);
+    return JSON.parse(cachedData);
   }
+
+  Logger.log(`CACHE MISS: Chave: ${cacheKey}. Buscando dados frescos.`);
+  const freshData = dataFetchFunction.apply(null, functionArgs);
+  cache.put(cacheKey, JSON.stringify(freshData), CACHE_EXPIRATION_SECONDS);
+  return freshData;
+}
+
+
+/**
+ * Função principal que serve o "casco" da aplicação (menu e área de conteúdo).
+ * OTIMIZADO: Pré-carrega os dados do dashboard inicial.
+ */
+function doGet(e) {
+  const template = HtmlService.createTemplateFromFile('Index');
+
+  // Otimização: Pré-carrega os dados do dashboard NPS (página inicial)
+  const initialData = getInitialDashboardAndEvolutionDataWithCache(); // Usa a versão com cache
+  template.initialData = JSON.stringify(initialData);
+
+  return template.evaluate()
+    .setTitle('Dashboard KaBuM! - Monte o Seu PC')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /**
- * Busca dados para o gráfico de fluxo diário de chamados (abertos vs. fechados).
+ * Retorna o conteúdo HTML de uma página específica para ser carregado dinamicamente.
  */
-function getDailyFlowChartData(dateRange) {
-  try {
-    const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
-    const abaManager = planilhaCalltech.getSheetByName(NOME_ABA_MANAGER);
-    if (!abaManager) throw new Error(`Aba ${NOME_ABA_MANAGER} não encontrada.`);
-
-    const allManagerData = abaManager.getRange(2, 1, abaManager.getLastRow() - 1, abaManager.getLastColumn()).getDisplayValues();
-    const dailyFlow = {};
-    const startDate = new Date(dateRange.start.replace(/-/g, '/'));
-    const endDate = new Date(dateRange.end.replace(/-/g, '/'));
-
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        dailyFlow[d.toISOString().split('T')[0]] = { opened: 0, closed: 0 };
-    }
-
-    allManagerData.forEach(row => {
-        try {
-            // Abertos
-            const openDateStr = row[INDICES_CALLTECH.DATA_ABERTURA];
-            if (openDateStr) {
-                const [day, month, year] = openDateStr.split(' ')[0].split('/');
-                const openDate = new Date(year, month - 1, day);
-                const openDateISO = openDate.toISOString().split('T')[0];
-                if (dailyFlow.hasOwnProperty(openDateISO)) dailyFlow[openDateISO].opened++;
-            }
-            // Fechados
-            const closeDateStr = row[INDICES_CALLTECH.DATA_FINALIZACAO];
-            if (closeDateStr) {
-                const [day, month, year] = closeDateStr.split(' ')[0].split('/');
-                const closeDate = new Date(year, month - 1, day);
-                const closeDateISO = closeDate.toISOString().split('T')[0];
-                if (dailyFlow.hasOwnProperty(closeDateISO)) dailyFlow[closeDateISO].closed++;
-            }
-        } catch (e) { /* Ignora datas inválidas */ }
-    });
-
-    const weekDayInitials = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
-    const dailyFlowChartData = [['Dia', 'Abertos', 'Fechados']];
-    Object.keys(dailyFlow).sort().forEach(dayISO => {
-        const date = new Date(dayISO.replace(/-/g, '/'));
-        const [year, month, day] = dayISO.split('-');
-        const label = `${day}/${month}\n(${weekDayInitials[date.getUTCDay()]})`;
-        dailyFlowChartData.push([label, dailyFlow[dayISO].opened, dailyFlow[dayISO].closed]);
-    });
-    return dailyFlowChartData;
-  } catch (e) {
-    Logger.log(`Erro fatal em getDailyFlowChartData: ${e.stack}`);
-    return [['Dia', 'Abertos', 'Fechados']];
+function getPageHtml(pageName) {
+  if (pageName === 'Dashboard' || pageName === 'Calltech' || pageName === 'Devolucao') {
+    return HtmlService.createHtmlOutputFromFile('Page_' + pageName).getContent();
   }
+  throw new Error('Página não encontrada.');
+}
+
+/**
+ * Permite a inclusão de arquivos HTML (usados para os scripts JS) dentro de outro template HTML.
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+
+/**
+ * FUNÇÃO UTILITÁRIA GLOBAL: Filtra linhas de dados para manter apenas a mais recente por ID de pedido.
+ * Utilizada por ambos os dashboards para garantir dados únicos.
+ * @param {Array<Array<any>>} dados - O conjunto de dados a ser filtrado.
+ * @param {number} idIndex - O índice da coluna que contém o ID do pedido.
+ * @param {number} classIndex - O índice da coluna de classificação (para validação).
+ * @returns {Array<Array<any>>} Um array com as linhas únicas.
+ */
+function getUniqueValidRows(dados, idIndex, classIndex) {
+  const pedidosProcessados = new Map();
+  const validClassifications = ['promotor', 'detrator', 'neutro'];
+  
+  // Itera de trás para frente para que a primeira ocorrência (a mais recente) seja a que fica.
+  for (let i = dados.length - 1; i >= 0; i--) {
+    const linha = dados[i];
+    const pedidoId = linha[idIndex]?.toString().trim();
+    const classificacao = linha[classIndex]?.toString().toLowerCase();
+
+    if (pedidoId && validClassifications.includes(classificacao)) {
+      if (!pedidosProcessados.has(pedidoId)) {
+        pedidosProcessados.set(pedidoId, linha);
+      }
+    }
+  }
+  return Array.from(pedidosProcessados.values());
 }
 
