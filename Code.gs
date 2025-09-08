@@ -1,11 +1,13 @@
 /**
  * Script Principal para servir o aplicativo da web e conter funções/constantes globais.
- * @version 2.0 - Refatorado
+ * @version 2.2 - Revisão completa com Cache e Pré-carregamento de Dados
  */
 
 // === CENTRAL DE CONFIGURAÇÕES GLOBAIS ===
 const ID_PLANILHA_NPS = "1ewRARy4u4V0MJMoup0XbPlLLUrdPmR4EZwRwmy_ZECM";
 const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
+const ID_PLANILHA_DEVOLUCAO = "1m3tOvmSOJIvRZY9uZNf1idSTEnUFbHIWPNh5tiHkKe0";
+
 
 // Nomes das abas
 const NOME_ABA_NPS = "Avaliações 2025";
@@ -13,6 +15,7 @@ const NOME_ABA_ACOES = "ações 2025";
 const NOME_ABA_ATENDIMENTO = "Forms";
 const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager";
+const NOME_ABA_DEVOLUCAO = "Base Devolução";
 
 // Índices de colunas (mantidos aqui para referência global, se necessário)
 const INDICES_NPS = {
@@ -55,13 +58,44 @@ const INDICES_CALLTECH = {
 };
 // =========================================
 
+// OTIMIZAÇÃO: Duração do cache em segundos (900s = 15 minutos)
+const CACHE_EXPIRATION_SECONDS = 900;
+
+/**
+ * UTILITY: Obtém dados do cache ou busca-os se não existirem, depois armazena no cache.
+ * @param {string} cacheKey A chave única para os dados no cache.
+ * @param {function} dataFetchFunction A função que busca os dados frescos.
+ * @param {Array<any>} functionArgs Os argumentos para a dataFetchFunction.
+ * @returns {Object} Os dados (do cache ou frescos).
+ */
+function getOrSetCache(cacheKey, dataFetchFunction, functionArgs) {
+  const cache = CacheService.getScriptCache();
+  const cachedData = cache.get(cacheKey);
+
+  if (cachedData) {
+    Logger.log(`CACHE HIT: Chave: ${cacheKey}`);
+    return JSON.parse(cachedData);
+  }
+
+  Logger.log(`CACHE MISS: Chave: ${cacheKey}. Buscando dados frescos.`);
+  const freshData = dataFetchFunction.apply(null, functionArgs);
+  cache.put(cacheKey, JSON.stringify(freshData), CACHE_EXPIRATION_SECONDS);
+  return freshData;
+}
+
 
 /**
  * Função principal que serve o "casco" da aplicação (menu e área de conteúdo).
+ * OTIMIZADO: Pré-carrega os dados do dashboard inicial.
  */
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  const template = HtmlService.createTemplateFromFile('Index');
+
+  // Otimização: Pré-carrega os dados do dashboard NPS (página inicial)
+  const initialData = getInitialDashboardAndEvolutionDataWithCache(); // Usa a versão com cache
+  template.initialData = JSON.stringify(initialData);
+
+  return template.evaluate()
     .setTitle('Dashboard KaBuM! - Monte o Seu PC')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -70,10 +104,7 @@ function doGet(e) {
  * Retorna o conteúdo HTML de uma página específica para ser carregado dinamicamente.
  */
 function getPageHtml(pageName) {
-  // --- INÍCIO DA MODIFICAÇÃO ---
-  // Adicionamos 'Devolucao' à lista de páginas válidas.
   if (pageName === 'Dashboard' || pageName === 'Calltech' || pageName === 'Devolucao') {
-  // --- FIM DA MODIFICAÇÃO ---
     return HtmlService.createHtmlOutputFromFile('Page_' + pageName).getContent();
   }
   throw new Error('Página não encontrada.');
@@ -113,3 +144,4 @@ function getUniqueValidRows(dados, idIndex, classIndex) {
   }
   return Array.from(pedidosProcessados.values());
 }
+
