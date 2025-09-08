@@ -34,8 +34,8 @@
                 <p id="kpi-valor-cancelamento" class="text-4xl font-bold text-slate-800 mt-2">R$ 0,00</p>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm">
-                <h4 class="text-slate-500 font-semibold">Pedidos com Devolução</h4>
-                <p id="kpi-pedidos-devolucao" class="text-4xl font-bold text-slate-800 mt-2">0</p>
+                <h4 class="text-slate-500 font-semibold">Total de Devoluções (NF-e)</h4>
+                <p id="kpi-devolucoes-unicas" class="text-4xl font-bold text-slate-800 mt-2">0</p>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm">
                 <h4 class="text-slate-500 font-semibold">Itens Devolvidos</h4>
@@ -44,22 +44,22 @@
         </section>
 
         <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Card do Gráfico de Devoluções por Mês -->
-            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
+             <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
                 <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Devoluções por Mês</h3>
                 <div id="devolucoes-mes-chart" style="width: 100%; height: 400px;"></div>
             </div>
-            <!-- Card do Top 10 Motivos -->
-            <div class="bg-white p-6 rounded-xl shadow-sm">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 10 Motivos de Devolução</h3>
-                <div id="top-motivos-container" class="space-y-3"></div>
+             <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Motivos</h3>
+                 <div id="top-motivos-container" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <!-- Cards de motivos serão gerados aqui -->
+                </div>
             </div>
         </section>
 
         <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-white p-6 rounded-xl shadow-sm">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 10 Produtos Devolvidos</h3>
-                <div id="top-produtos-container" class="space-y-3"></div>
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 10 Categorias (Budget)</h3>
+                <div id="top-categorias-container" class="space-y-3"></div>
             </div>
             <div class="bg-white p-6 rounded-xl shadow-sm">
                 <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 10 Fabricantes com Devolução</h3>
@@ -72,15 +72,19 @@
             <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left">
                     <thead id="devolucao-detalhada-thead" class="bg-slate-50 text-slate-600 uppercase">
-                        <!-- O cabeçalho será gerado dinamicamente -->
                     </thead>
                     <tbody id="devolucao-detalhada-tbody" class="text-slate-700">
-                        <!-- As linhas serão geradas dinamicamente -->
                     </tbody>
                 </table>
+            </div>
+             <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+                <span id="dev-detalhada-page-info"></span>
+                <div class="ml-4">
+                    <button id="dev-detalhada-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                    <button id="dev-detalhada-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+                </div>
             </div>
         </section>
     </div>
 </div>
-
 
