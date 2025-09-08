@@ -3,6 +3,12 @@
 // === LÓGICA DA PÁGINA DEVOLUÇÃO ===================================
 // ==================================================================
 
+// Variáveis globais para paginação da tabela detalhada
+let allDevolucaoProdutos = [];
+let allDevolucaoMotivos = [];
+let devolucaoCurrentPage = 1;
+const devolucaoRowsPerPage = 20;
+
 function initializeDevolucaoPage() {
     google.charts.load('current', { 'packages': ['corechart'] });
     google.charts.setOnLoadCallback(() => {
@@ -17,6 +23,19 @@ function initializeDevolucaoPage() {
             document.getElementById('dev-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
             updateDevolucaoDateRangeDisplay();
             
+            document.getElementById('dev-detalhada-prev-page').addEventListener('click', () => {
+                if (devolucaoCurrentPage > 1) {
+                    devolucaoCurrentPage--;
+                    renderDevolucaoDetalhadaPage();
+                }
+            });
+            document.getElementById('dev-detalhada-next-page').addEventListener('click', () => {
+                if (devolucaoCurrentPage * devolucaoRowsPerPage < allDevolucaoProdutos.length) {
+                    devolucaoCurrentPage++;
+                    renderDevolucaoDetalhadaPage();
+                }
+            });
+
             fetchDevolucaoData();
 
         } catch (error) {
@@ -36,7 +55,7 @@ function updateDevolucaoDateRangeDisplay() {
 function applyDevolucaoDateFilter() {
     document.getElementById('dev-date-range-popup').classList.remove('show');
     updateDevolucaoDateRangeDisplay();
-    pageCache.data.devolucao = null; // Invalida o cache
+    pageCache.data.devolucao = null; 
     fetchDevolucaoData();
 }
 
@@ -74,23 +93,79 @@ function onDevolucaoDataReceived(data) {
     if (loader) loader.style.display = 'none';
     if (content) content.style.visibility = 'visible';
 
-    // Atualiza KPIs
     document.getElementById('kpi-total-devolvido').textContent = (data.kpis.totalDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    document.getElementById('kpi-valor-cancelamento').textContent = (data.kpis.totalCancelado || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    document.getElementById('kpi-pedidos-devolucao').textContent = data.kpis.pedidosComDevolucao || 0;
+    document.getElementById('kpi-valor-cancelamento').textContent = (data.kpis.valorCancelamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    document.getElementById('kpi-devolucoes-unicas').textContent = data.kpis.devolucoesUnicas || 0;
     document.getElementById('kpi-itens-devolvidos').textContent = data.kpis.totalItensDevolvidos || 0;
     
-    // Renderiza as listas
-    renderTopList('top-motivos-container', data.topMotivos, '#4f46e5');
-    renderTopList('top-produtos-container', data.topProdutos, '#059669', true);
+    renderMotivosCards('top-motivos-container', data.topMotivos, data.kpis.devolucoesUnicas);
+    renderTopList('top-categorias-container', data.topCategorias, '#059669', false);
     renderTopList('top-fabricantes-container', data.topFabricantes, '#d97706');
 
-    // Desenha o gráfico
     drawDevolucoesChart(data.devolucoesPorMes);
 
-    // Renderiza a nova tabela detalhada
-    renderDevolucaoDetalhadaTable(data.devolucaoDetalhada);
+    allDevolucaoProdutos = data.tabelaDetalhada.produtos || [];
+    allDevolucaoMotivos = data.tabelaDetalhada.motivos || [];
+    devolucaoCurrentPage = 1;
+    renderDevolucaoDetalhadaPage();
 }
+
+function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!motivosData || motivosData.length === 0 || totalDevolucoes === 0) {
+        container.innerHTML = '<p class="text-sm text-slate-500">Nenhum motivo encontrado.</p>';
+        return;
+    }
+
+    motivosData.forEach(([motivo, data]) => {
+        const { quantidade, valor, quantidadeAnterior } = data;
+        
+        const percentage = (quantidade / totalDevolucoes) * 100;
+        const valorFormatado = (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        let trendIndicatorHtml = '';
+        const diff = quantidade - quantidadeAnterior;
+
+        if (diff > 0) {
+            trendIndicatorHtml = `
+                <span class="flex items-center text-xs font-semibold text-red-500" title="Comparado ao período anterior">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" /></svg>
+                    +${diff}
+                </span>`;
+        } else if (diff < 0) {
+            trendIndicatorHtml = `
+                <span class="flex items-center text-xs font-semibold text-emerald-500" title="Comparado ao período anterior">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
+                    ${diff}
+                </span>`;
+        } else {
+             trendIndicatorHtml = `
+                <span class="flex items-center text-xs font-semibold text-slate-400" title="Comparado ao período anterior">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h14" /></svg>
+                </span>`;
+        }
+
+        const cardHtml = `
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <h4 class="font-semibold text-slate-800 truncate text-sm" title="${motivo}">${motivo}</h4>
+                <div class="mt-2 pt-2 border-t border-slate-200">
+                    <div class="flex justify-between items-baseline">
+                        <span class="text-2xl font-bold text-orange-600">${quantidade}</span>
+                        <div class="flex items-center gap-2">
+                           ${trendIndicatorHtml}
+                           <span class="text-sm font-semibold text-slate-500">${percentage.toFixed(1)}%</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-slate-500 text-left mt-1">Valor: ${valorFormatado}</p>
+                </div>
+            </div>`;
+        container.innerHTML += cardHtml;
+    });
+}
+
 
 function renderTopList(containerId, data, barColor, isProduct = false) {
     const container = document.getElementById(containerId);
@@ -123,9 +198,6 @@ function renderTopList(containerId, data, barColor, isProduct = false) {
     });
 }
 
-/**
- * NOVA VERSÃO DA FUNÇÃO DO GRÁFICO - REESCRITA PARA ESTABILIDADE
- */
 function drawDevolucoesChart(chartData) {
     const chartDiv = document.getElementById('devolucoes-mes-chart');
     if (!chartDiv) return;
@@ -135,9 +207,9 @@ function drawDevolucoesChart(chartData) {
         return;
     }
     
-    // Etapa 1: Converter os dados brutos para um formato estável que a biblioteca entende.
+    // CORREÇÃO: Usar a nova contagem de NF-e no tooltip e nos eixos do gráfico.
     const dataArray = [
-        ['Mês', 'Valor Devolvido (R$)', { role: 'annotation' }, 'Pedidos Únicos', { role: 'annotation' }]
+        ['Mês', 'Valor Devolvido (R$)', { role: 'annotation' }, 'Devoluções (NF-e)', { role: 'annotation' }]
     ];
 
     chartData.slice(1).forEach(([mes, valor, quantidade]) => {
@@ -147,75 +219,56 @@ function drawDevolucoesChart(chartData) {
     });
 
     const dataTable = google.visualization.arrayToDataTable(dataArray);
-
     const textStyle = { color: '#1e293b', fontName: 'Inter', fontSize: 12 };
 
-    // Etapa 2: Definir as opções de visualização, focando em estabilidade.
     const options = {
         fontName: 'Inter',
         legend: { position: 'top', maxLines: 3, textStyle: textStyle },
         seriesType: 'bars',
         series: {
-            0: { // Valor (linha)
-                type: 'line', 
-                color: '#FF6000', 
-                targetAxisIndex: 0,
-                lineWidth: 3,
-                pointSize: 6,
-                pointShape: 'circle',
-            },
-            1: { // Pedidos Únicos (barras)
-                type: 'bars', 
-                color: '#00529e', 
-                targetAxisIndex: 1 
-            }
+            0: { type: 'line', color: '#FF6000', targetAxisIndex: 0, lineWidth: 3, pointSize: 6, pointShape: 'circle' },
+            1: { type: 'bars', color: '#00529e', targetAxisIndex: 1 }
         },
         vAxes: {
-            0: { 
-                title: 'Valor Devolvido (R$)', 
-                format: 'short', 
-                textStyle: textStyle,
-                titleTextStyle: { ...textStyle, bold: true, italic: false },
-                gridlines: { color: '#e2e8f0' },
-                viewWindow: { min: 0 }
-            },
-            1: { 
-                title: 'Pedidos Únicos com Devolução', 
-                gridlines: { color: 'transparent' }, 
-                textStyle: textStyle,
-                titleTextStyle: { ...textStyle, bold: true, italic: false },
-                viewWindow: { min: 0 }
-            }
+            0: { title: 'Valor Devolvido (R$)', format: 'short', textStyle: textStyle, titleTextStyle: { ...textStyle, bold: true, italic: false }, gridlines: { color: '#e2e8f0' }, viewWindow: { min: 0 } },
+            1: { title: 'Devoluções (NF-e)', gridlines: { color: 'transparent' }, textStyle: textStyle, titleTextStyle: { ...textStyle, bold: true, italic: false }, viewWindow: { min: 0 } }
         },
-        hAxis: { 
-            textStyle: textStyle,
-            titleTextStyle: { ...textStyle, bold: true, italic: false }
-        },
+        hAxis: { textStyle: textStyle, titleTextStyle: { ...textStyle, bold: true, italic: false } },
         chartArea: { left: 100, top: 60, width: '85%', height: '65%' },
         bar: { groupWidth: '60%' },
-        // Usar o tooltip padrão, que é mais rápido e não causa travamentos.
         focusTarget: 'category',
-        // Desativar animações para garantir performance máxima.
-        animation: {
-            startup: false,
-        },
-        annotations: {
-            alwaysOutside: true,
-            textStyle: {
-                fontName: 'Inter',
-                fontSize: 11,
-                color: '#1e293b',
-                auraColor: '#ffffff' 
-            },
-            stem: {
-                color: 'transparent'
-            }
-        }
+        animation: { startup: false },
+        annotations: { alwaysOutside: true, textStyle: { fontName: 'Inter', fontSize: 11, color: '#1e293b', auraColor: '#ffffff' }, stem: { color: 'transparent' } }
     };
 
-    // Etapa 3: Desenhar o gráfico.
     const chart = new google.visualization.ComboChart(chartDiv);
     chart.draw(dataTable, options);
+}
+
+function renderDevolucaoDetalhadaPage() {
+    const startIndex = (devolucaoCurrentPage - 1) * devolucaoRowsPerPage;
+    const endIndex = startIndex + devolucaoRowsPerPage;
+    const pageProdutos = allDevolucaoProdutos.slice(startIndex, endIndex);
+
+    const pageDetails = {
+        motivos: allDevolucaoMotivos,
+        produtos: pageProdutos
+    };
+
+    renderDevolucaoDetalhadaTable(pageDetails);
+
+    const pageInfo = document.getElementById('dev-detalhada-page-info');
+    const prevBtn = document.getElementById('dev-detalhada-prev-page');
+    const nextBtn = document.getElementById('dev-detalhada-next-page');
+
+    if (allDevolucaoProdutos.length > 0) {
+        pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allDevolucaoProdutos.length)} de ${allDevolucaoProdutos.length}`;
+    } else {
+        pageInfo.textContent = '';
+    }
+    
+    prevBtn.disabled = devolucaoCurrentPage === 1;
+    nextBtn.disabled = endIndex >= allDevolucaoProdutos.length;
 }
 
 function renderDevolucaoDetalhadaTable(detalhes) {
@@ -227,13 +280,11 @@ function renderDevolucaoDetalhadaTable(detalhes) {
         return;
     }
 
-    // Limpa conteúdo anterior
     thead.innerHTML = '';
     tbody.innerHTML = '';
 
-    if (!detalhes.linhas || detalhes.linhas.length === 0) {
+    if (!detalhes.produtos || detalhes.produtos.length === 0) {
         tbody.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-500">Nenhum item devolvido no período selecionado.</td></tr>';
-        // Still render a minimal header
         thead.innerHTML = `
             <tr>
                 <th class="p-3">CF</th>
@@ -244,8 +295,7 @@ function renderDevolucaoDetalhadaTable(detalhes) {
         return;
     }
 
-    // Monta o cabeçalho dinamicamente
-    const cabecalhosMotivos = detalhes.cabecalhos || [];
+    const cabecalhosMotivos = detalhes.motivos || [];
     let headerHtml = '<tr>';
     headerHtml += '<th class="p-3">CF</th>';
     headerHtml += '<th class="p-3">Produto</th>';
@@ -256,10 +306,8 @@ function renderDevolucaoDetalhadaTable(detalhes) {
     headerHtml += '</tr>';
     thead.innerHTML = headerHtml;
 
-    // Monta as linhas da tabela
     let bodyHtml = '';
-    detalhes.linhas.forEach(produto => {
-        // Limita o nome do produto para não quebrar o layout
+    detalhes.produtos.forEach(produto => {
         const nomeProdutoCurto = produto.nome.length > 80 ? produto.nome.substring(0, 80) + '...' : produto.nome;
 
         bodyHtml += `<tr class="border-b hover:bg-slate-50">`;
@@ -267,7 +315,6 @@ function renderDevolucaoDetalhadaTable(detalhes) {
         bodyHtml += `<td class="p-3" title="${produto.nome}">${nomeProdutoCurto}</td>`;
         bodyHtml += `<td class="p-3 font-bold text-center">${produto.total}</td>`;
 
-        // Itera sobre os cabeçalhos para garantir a ordem correta das colunas de motivo
         cabecalhosMotivos.forEach(motivo => {
             const contagem = produto.motivos[motivo] || 0;
             bodyHtml += `<td class="p-3 text-center">${contagem}</td>`;
@@ -280,5 +327,4 @@ function renderDevolucaoDetalhadaTable(detalhes) {
 }
 
 </script>
-
 
