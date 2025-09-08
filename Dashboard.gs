@@ -458,7 +458,6 @@ function getDetractorSupportDetails(dateRange, reasons) {
   return details;
 }
 
-
 // ===========================================
 // === SEÇÃO DE ANÁLISE COM IA (GEMINI) ======
 // ===========================================
@@ -589,3 +588,45 @@ function getWordFrequencyAnalysis(comments) {
   }
   return result;
 }
+
+// --- VERSÕES COM CACHE PARA SEREM CHAMADAS PELO CLIENTE ---
+
+function getInitialDashboardAndEvolutionDataWithCache() {
+  const today = new Date();
+  const dateKey = today.toISOString().split('T')[0];
+  // A chave de cache para os dados iniciais é baseada apenas na data atual para simplicidade.
+  const cacheKey = `initial_dashboard_${dateKey}`;
+  return getOrSetCache(cacheKey, getInitialDashboardAndEvolutionData, []);
+}
+
+function getDashboardDataWithCache(dateRange) {
+  const cacheKey = `dashboard_data_${dateRange.start}_${dateRange.end}`;
+  return getOrSetCache(cacheKey, getDashboardData, [dateRange]);
+}
+
+function getEvolutionChartDataWithCache(dateRange, groupBy) {
+  const cacheKey = `evolution_data_${dateRange.start}_${dateRange.end}_${groupBy}`;
+  return getOrSetCache(cacheKey, getEvolutionChartData, [dateRange, groupBy]);
+}
+
+function getNpsTimelineDataWithCache(dateRange) {
+  const cacheKey = `timeline_data_${dateRange.start}_${dateRange.end}`;
+  return getOrSetCache(cacheKey, getNpsTimelineData, [dateRange]);
+}
+
+function getRecentActionsWithCache() {
+  const cacheKey = 'recent_actions_v2'; // As ações mudam com menos frequência
+  return getOrSetCache(cacheKey, getRecentActions, []);
+}
+
+function getDetractorSupportDetailsWithCache(dateRange, reasons) {
+   const cacheKey = `detractor_support_${dateRange.start}_${dateRange.end}_${reasons.join('-')}`;
+   return getOrSetCache(cacheKey, getDetractorSupportDetails, [dateRange, reasons]);
+}
+
+function getWordFrequencyAnalysisWithCache(comments) {
+    // Cache para análise de palavras pode ser curto e baseado no hash dos comentários
+    const cacheKey = `word_analysis_${Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, JSON.stringify(comments)).map(b => (b+256).toString(16).slice(-2)).join('')}`;
+    return getOrSetCache(cacheKey, getWordFrequencyAnalysis, [comments]);
+}
+
