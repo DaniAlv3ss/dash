@@ -40,7 +40,6 @@ function initializeCalltechPage() {
             if(calltechCurrentPage * calltechRowsPerPage < filteredCalltechTickets.length) { calltechCurrentPage++; displayCalltechPage(); }
         });
         
-        // --- INÍCIO DA MODIFICAÇÃO ---
         // Filtros da tabela
         document.getElementById('filter-chamado-input').addEventListener('input', () => {
             clearTimeout(filterTimeout);
@@ -51,18 +50,16 @@ function initializeCalltechPage() {
             filterTimeout = setTimeout(filterCalltechTable, 300);
         });
 
-        // Event Listeners para o novo menu de filtros
+        // Event Listeners para o menu de filtros
         document.getElementById('status-filter-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'status-filter-popup'));
         document.getElementById('filter-nps-toggle').addEventListener('change', filterCalltechTable);
         document.getElementById('filter-devolucao-toggle').addEventListener('change', filterCalltechTable);
-        // --- FIM DA MODIFICAÇÃO ---
-
 
         // Busca os dados iniciais
         fetchCalltechData();
-        fetchAndDrawFlowChart(); // Busca dados para o gráfico com o período padrão
+        fetchAndDrawFlowChart();
 
-        // Lógica dos modais de histórico
+        // Lógica dos modais
         document.getElementById('close-clientes-modal-btn').addEventListener('click', closeClientesModal);
         document.getElementById('clientes-modal').addEventListener('click', closeClientesModal);
 
@@ -86,15 +83,14 @@ function updateCalltechDateRangeDisplay(type = 'main') {
 function applyCalltechDateFilter() {
     document.getElementById('ct-date-range-popup').classList.remove('show');
     updateCalltechDateRangeDisplay('main');
-    pageCache.data.calltech = null; // Invalida o cache
+    pageCache.data.calltech = null;
     fetchCalltechData();
 }
 
-// MODIFICADO: Adicionado invalidação de cache para o gráfico de fluxo
 function applyFlowChartDateFilter() {
     document.getElementById('flow-date-range-popup').classList.remove('show');
     updateCalltechDateRangeDisplay('flow');
-    pageCache.data.calltechFlowChart = null; // Invalida o cache do gráfico
+    pageCache.data.calltechFlowChart = null;
     fetchAndDrawFlowChart();
 }
 
@@ -119,9 +115,7 @@ function fetchCalltechData() {
         .getCalltechData(dateRange);
 }
 
-// MODIFICADO: Adicionado lógica de cache para o gráfico de fluxo
 function fetchAndDrawFlowChart() {
-    // Verifica se os dados do gráfico já existem no cache
     if (pageCache.data.calltechFlowChart) {
         drawDailyFlowChart(pageCache.data.calltechFlowChart);
         return;
@@ -139,7 +133,7 @@ function fetchAndDrawFlowChart() {
 
     google.script.run
         .withSuccessHandler(function(chartData) {
-            pageCache.data.calltechFlowChart = chartData; // Armazena os dados no cache
+            pageCache.data.calltechFlowChart = chartData;
             drawDailyFlowChart(chartData);
         })
         .withFailureHandler(error => {
@@ -153,8 +147,6 @@ function fetchAndDrawFlowChart() {
 
 function onCalltechDataReceived(data) {
     pageCache.data.calltech = data;
-
-    // OTIMIZAÇÃO: Armazena os históricos pré-carregados no cache da página
     pageCache.data.customerHistories = data.customerHistories || {};
 
     const loader = document.getElementById('calltech-loader');
@@ -187,10 +179,8 @@ function onCalltechDataReceived(data) {
     }
 
     allCalltechTickets = data.tickets || [];
-    // --- INÍCIO DA MODIFICAÇÃO ---
-    populateStatusFilter(data.uniqueStatuses); // Popula o novo filtro
+    populateStatusFilter(data.uniqueStatuses);
     filterCalltechTable(); 
-    // --- FIM DA MODIFICAÇÃO ---
 }
 
 function updateResolutionRateCard(resolutionData) {
@@ -234,8 +224,6 @@ function drawDailyFlowChart(chartData) {
     chart.draw(view, options);
 }
 
-// --- INÍCIO DA MODIFICAÇÃO ---
-// Nova função para popular o menu de filtro de status
 function populateStatusFilter(statuses) {
     const container = document.getElementById('status-filter-options');
     container.innerHTML = '';
@@ -247,7 +235,6 @@ function populateStatusFilter(statuses) {
     statuses.forEach(status => {
         const div = document.createElement('div');
         div.className = 'flex items-center';
-        // Usamos uma codificação simples para criar um ID único para o checkbox
         const statusId = 'status-' + status.replace(/[^a-zA-Z0-9]/g, '');
         div.innerHTML = `
             <input type="checkbox" id="${statusId}" value="${status}" class="status-filter-checkbox h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500">
@@ -256,7 +243,6 @@ function populateStatusFilter(statuses) {
         container.appendChild(div);
     });
 
-    // Adiciona event listeners aos novos checkboxes
     document.querySelectorAll('.status-filter-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', filterCalltechTable);
     });
@@ -285,7 +271,6 @@ function filterCalltechTable() {
     calltechCurrentPage = 1;
     displayCalltechPage();
 }
-// --- FIM DA MODIFICAÇÃO ---
 
 function displayCalltechPage() {
     const tbody = document.getElementById('calltech-table-body');
@@ -454,11 +439,6 @@ function renderClientHistory(customer) {
             ${historyHtml}
         </div>
     `;
-
-    const animatedCards = detailContainer.querySelectorAll('.timeline-card-animated');
-    animatedCards.forEach((card, index) => {
-        card.style.animationDelay = `${index * 0.15}s`;
-    });
 }
 
 function createHistoryItem(item, index, totalItems){
@@ -497,7 +477,7 @@ function createHistoryItem(item, index, totalItems){
         case 'DevolucaoAgrupada':
             iconHtml = iconDevolucao;
             const valorTotalDevolvido = (typeof item.valorTotal === 'number') ? item.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'N/A';
-            const encodedItems = encodeURIComponent(JSON.stringify(item.itens));
+            const encodedItems = encodeURIComponent(JSON.stringify(item.items));
             contentHtml = `
                <div class="cursor-pointer" onclick="openDevolucaoDetailModal('${item.pedidoId}', JSON.parse(decodeURIComponent('${encodedItems}')))">
                    <p class="font-semibold text-slate-700 hover:text-orange-600">Devolução Registrada <span class="text-xs font-normal text-slate-500">(${formattedDate})</span></p>
@@ -512,7 +492,7 @@ function createHistoryItem(item, index, totalItems){
         <div class="relative flex items-start">
             ${lineDiv}
             <div class="z-10 flex-shrink-0">${iconHtml}</div>
-            <div class="ml-4 w-full timeline-card-animated">
+            <div class="ml-4 w-full">
                 <div class="bg-white p-4 rounded-xl shadow-sm">
                     ${contentHtml}
                 </div>
@@ -521,3 +501,4 @@ function createHistoryItem(item, index, totalItems){
     `;
 }
 </script>
+
