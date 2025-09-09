@@ -488,11 +488,13 @@ function createHistoryItem(item, index, totalItems){
             break;
     }
 
+    const delay = index * 100; // Atraso em milissegundos
+
     return `
         <div class="relative flex items-start">
             ${lineDiv}
             <div class="z-10 flex-shrink-0">${iconHtml}</div>
-            <div class="ml-4 w-full">
+            <div class="ml-4 w-full animate__animated animate__fadeInLeft" style="animation-delay: ${delay}ms;">
                 <div class="bg-white p-4 rounded-xl shadow-sm">
                     ${contentHtml}
                 </div>
