@@ -239,7 +239,7 @@ function getCalltechData(dateRange) {
                   const key = pedidoId;
                   if (!devolucoesAgrupadas[key]) {
                       devolucoesAgrupadas[key] = {
-                          type: 'Devolucao',
+                          type: 'DevolucaoAgrupada',
                           pedidoId: pedidoId,
                           date: dateValue,
                           email: mapping.email,
@@ -259,6 +259,13 @@ function getCalltechData(dateRange) {
         Object.values(devolucoesAgrupadas).forEach(devolucao => {
             const email = devolucao.email;
             if (customerHistories[email]) {
+                devolucao.totalItens = devolucao.items.length;
+                devolucao.valorTotal = devolucao.items.reduce((sum, item) => {
+                    const valorRaw = item.valor;
+                    const valorNum = (typeof valorRaw === 'number') ? valorRaw : (parseFloat(String(valorRaw).replace(/[R$\s.]/g, '').replace(',', '.')) || 0);
+                    return sum + valorNum;
+                }, 0);
+
                 customerHistories[email].name = customerHistories[email].name || devolucao.name;
                 customerHistories[email].history.push(devolucao);
             }
@@ -277,11 +284,11 @@ function getCalltechData(dateRange) {
       kpis: { total: tickets.length, open: openTickets, closed: closedTickets, avgTime: avgResolutionTime, retentionValue, npsFeedback, postServiceNps },
       resolutionRate,
       customerHistories, // Retorna o objeto de históricos pré-carregado
-      availableStatuses: Array.from(allTicketStatuses).sort()
+      uniqueStatuses: Array.from(allTicketStatuses).sort()
     };
   } catch (e) {
     Logger.log(`Erro fatal em getCalltechData: ${e.stack}`);
-    return { tickets: [], kpis: {}, resolutionRate: {}, customerHistories: {}, availableStatuses: [] };
+    return { tickets: [], kpis: {}, resolutionRate: {}, customerHistories: {}, uniqueStatuses: [] };
   }
 }
 
@@ -342,7 +349,7 @@ function getDailyFlowChartData(dateRange) {
 // --- VERSÕES COM CACHE PARA SEREM CHAMADAS PELO CLIENTE ---
 
 function getCalltechDataWithCache(dateRange) {
-  const cacheKey = `calltech_data_v3_${dateRange.start}_${dateRange.end}`;
+  const cacheKey = `calltech_data_v4_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getCalltechData, [dateRange]);
 }
 
@@ -350,4 +357,3 @@ function getDailyFlowChartDataWithCache(dateRange) {
   const cacheKey = `daily_flow_chart_data_v2_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDailyFlowChartData, [dateRange]);
 }
-
