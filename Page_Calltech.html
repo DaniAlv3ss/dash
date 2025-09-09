@@ -183,7 +183,6 @@
     <div class="bg-white p-6 rounded-xl shadow-sm">
         <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
             <h3 class="text-lg font-semibold text-slate-800">Detalhes dos Chamados</h3>
-            <!-- --- INÍCIO DA MODIFICAÇÃO --- -->
             <div class="flex flex-wrap items-center gap-2">
                  <input type="text" id="filter-chamado-input" placeholder="Filtrar por Cód. Chamado..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-40">
                  <input type="text" id="filter-pedido-input" placeholder="Filtrar por Pedido..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-40">
@@ -196,7 +195,6 @@
                     <div id="status-filter-popup" class="date-popup p-4" style="min-width: 250px;">
                         <h4 class="text-sm font-semibold text-slate-800 mb-3">Filtrar por Status</h4>
                         <div id="status-filter-options" class="space-y-2 max-h-60 overflow-y-auto pr-2">
-                            <!-- Checkboxes serão populadas por JS -->
                         </div>
                          <hr class="my-3">
                          <div class="space-y-2">
@@ -212,7 +210,6 @@
                     </div>
                 </div>
             </div>
-            <!-- --- FIM DA MODIFICAÇÃO --- -->
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
@@ -256,8 +253,7 @@
     </div>
 </div>
 
-<!-- --- INÍCIO DA MODIFICAÇÃO --- -->
-<!-- NOVO MODAL PARA DETALHES DA DEVOLUÇÃO -->
+<!-- MODAL PARA DETALHES DA DEVOLUÇÃO -->
 <div id="devolucao-detail-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[70] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300" onclick="closeDevolucaoDetailModal()">
     <div id="devolucao-detail-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
         <div class="flex justify-between items-center p-4 border-b bg-white rounded-t-xl">
@@ -271,5 +267,3 @@
         </div>
     </div>
 </div>
-<!-- --- FIM DA MODIFICAÇÃO --- -->
-
