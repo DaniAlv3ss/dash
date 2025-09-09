@@ -630,3 +630,4 @@ function getWordFrequencyAnalysisWithCache(comments) {
     return getOrSetCache(cacheKey, getWordFrequencyAnalysis, [comments]);
 }
 
+
