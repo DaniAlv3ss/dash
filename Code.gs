@@ -7,6 +7,7 @@
 const ID_PLANILHA_NPS = "1ewRARy4u4V0MJMoup0XbPlLLUrdPmR4EZwRwmy_ZECM";
 const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
 const ID_PLANILHA_DEVOLUCAO = "1m3tOvmSOJIvRZY9uZNf1idSTEnUFbHIWPNh5tiHkKe0";
+const ID_PLANILHA_INCOMPATIBILIDADE = "10l1w3d3HYSKFgSsnjOZ545efR-bdIECEkOR82IjV3TE";
 
 
 // Nomes das abas
@@ -104,7 +105,7 @@ function doGet(e) {
  * Retorna o conteúdo HTML de uma página específica para ser carregado dinamicamente.
  */
 function getPageHtml(pageName) {
-  if (pageName === 'Dashboard' || pageName === 'Calltech' || pageName === 'Devolucao') {
+  if (pageName === 'Dashboard' || pageName === 'Calltech' || pageName === 'Devolucao' || pageName === 'Incompatibilidade') {
     return HtmlService.createHtmlOutputFromFile('Page_' + pageName).getContent();
   }
   throw new Error('Página não encontrada.');
@@ -144,4 +145,3 @@ function getUniqueValidRows(dados, idIndex, classIndex) {
   }
   return Array.from(pedidosProcessados.values());
 }
-
