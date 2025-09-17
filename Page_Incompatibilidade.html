@@ -1,0 +1,85 @@
+<div id="incompat-loader" class="text-center py-20">
+    <p class="text-lg font-semibold text-orange-500">Carregando dados de incompatibilidades...</p>
+</div>
+
+<div id="incompat-content" style="visibility: hidden;">
+    <div class="flex justify-end mb-6 relative">
+        <div class="date-dropdown">
+            <button id="incompat-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center gap-2">
+                <span id="incompat-date-range-display">Carregando...</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+            </button>
+            <div id="incompat-date-range-popup" class="date-popup">
+                <div class="date-inputs">
+                    <div><label for="incompat-startDate">Data Início</label><input type="date" id="incompat-startDate"></div>
+                    <div><label for="incompat-endDate">Data Fim</label><input type="date" id="incompat-endDate"></div>
+                </div>
+                <div class="popup-actions">
+                    <button id="incompat-cancelButton" class="cancel-button">Cancelar</button>
+                    <button id="incompat-applyButton" class="apply-button">Aplicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Container principal para garantir o layout em coluna -->
+    <div class="flex flex-col gap-6">
+        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h4 class="text-slate-500 font-semibold">Total de Casos</h4>
+                <p id="kpi-total-casos" class="text-4xl font-bold text-slate-800 mt-2">0</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h4 class="text-slate-500 font-semibold">Custo Total de Trocas</h4>
+                <p id="kpi-custo-total" class="text-4xl font-bold text-red-600 mt-2">R$ 0,00</p>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h4 class="text-slate-500 font-semibold">Tempo Médio de Tratativa</h4>
+                <p id="kpi-tempo-medio" class="text-4xl font-bold text-blue-600 mt-2">0h</p>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Técnicos</h3>
+                <div id="top-tecnicos-container" class="space-y-3"></div>
+            </div>
+             <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Tipos de Problema</h3>
+                <div id="top-problemas-container" class="space-y-3"></div>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 10 Fabricantes</h3>
+                <div id="top-fabricantes-container" class="space-y-3"></div>
+            </div>
+        </section>
+
+        <section class="bg-white p-6 rounded-xl shadow-sm">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">Registros de Incompatibilidade</h3>
+             <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-slate-600 uppercase">
+                        <tr>
+                            <th class="p-3">Data</th>
+                            <th class="p-3">Técnico</th>
+                            <th class="p-3">OS</th>
+                            <th class="p-3">Pedido</th>
+                            <th class="p-3">Produto</th>
+                            <th class="p-3">Tipo de Problema</th>
+                            <th class="p-3">Detalhe</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incompat-table-body" class="text-slate-700">
+                    </tbody>
+                </table>
+            </div>
+             <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+                <span id="incompat-page-info"></span>
+                <div class="ml-4">
+                    <button id="incompat-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                    <button id="incompat-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
