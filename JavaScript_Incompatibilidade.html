@@ -1,0 +1,184 @@
+<script>
+// ==================================================================
+// === LÓGICA DA PÁGINA DE INCOMPATIBILIDADES =======================
+// ==================================================================
+
+// Variáveis globais para a tabela
+let allIncompatibilidadeRows = [];
+let incompatCurrentPage = 1;
+const incompatRowsPerPage = 20;
+
+function initializeIncompatibilidadePage() {
+    try {
+        const today = new Date();
+        const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        document.getElementById('incompat-endDate').value = today.toISOString().split('T')[0];
+        document.getElementById('incompat-startDate').value = firstDayMonth.toISOString().split('T')[0];
+        
+        document.getElementById('incompat-applyButton').addEventListener('click', applyIncompatDateFilter);
+        document.getElementById('incompat-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-date-range-popup'));
+        document.getElementById('incompat-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-date-range-popup'));
+        updateIncompatDateRangeDisplay();
+        
+        document.getElementById('incompat-prev-page').addEventListener('click', () => {
+            if (incompatCurrentPage > 1) {
+                incompatCurrentPage--;
+                renderIncompatibilidadeTablePage();
+            }
+        });
+        document.getElementById('incompat-next-page').addEventListener('click', () => {
+            if (incompatCurrentPage * incompatRowsPerPage < allIncompatibilidadeRows.length) {
+                incompatCurrentPage++;
+                renderIncompatibilidadeTablePage();
+            }
+        });
+
+        fetchIncompatibilidadeData();
+
+    } catch (error) {
+        displayError("Erro ao inicializar o Dashboard de Incompatibilidades", error);
+    }
+}
+
+function updateIncompatDateRangeDisplay() {
+    const startDate = new Date(document.getElementById('incompat-startDate').value.replace(/-/g, '/'));
+    const endDate = new Date(document.getElementById('incompat-endDate').value.replace(/-/g, '/'));
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    const display = `${startDate.toLocaleDateString('pt-BR', options)} - ${endDate.toLocaleDateString('pt-BR', options)}`;
+    document.getElementById('incompat-date-range-display').textContent = display;
+}
+
+function applyIncompatDateFilter() {
+    document.getElementById('incompat-date-range-popup').classList.remove('show');
+    updateIncompatDateRangeDisplay();
+    pageCache.data.incompatibilidade = null; 
+    fetchIncompatibilidadeData();
+}
+
+function fetchIncompatibilidadeData() {
+    if (pageCache.data.incompatibilidade) {
+        onIncompatibilidadeDataReceived(pageCache.data.incompatibilidade);
+        return;
+    }
+
+    const loader = document.getElementById('incompat-loader');
+    const content = document.getElementById('incompat-content');
+    if (loader) loader.style.display = 'block';
+    if (content) content.style.visibility = 'hidden';
+
+    const dateRange = {
+        start: document.getElementById('incompat-startDate').value,
+        end: document.getElementById('incompat-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(onIncompatibilidadeDataReceived)
+        .withFailureHandler(error => displayError('Falha ao buscar dados de Incompatibilidades', error))
+        .getIncompatibilidadeDataWithCache(dateRange);
+}
+
+function onIncompatibilidadeDataReceived(data) {
+    if (data.error) {
+        displayError('Erro ao processar dados de Incompatibilidades', { message: data.error });
+        return;
+    }
+    pageCache.data.incompatibilidade = data;
+
+    const loader = document.getElementById('incompat-loader');
+    const content = document.getElementById('incompat-content');
+    if (loader) loader.style.display = 'none';
+    if (content) content.style.visibility = 'visible';
+
+    // Atualiza KPIs
+    document.getElementById('kpi-total-casos').textContent = data.kpis.totalIncompatibilidades || 0;
+    document.getElementById('kpi-custo-total').textContent = (data.kpis.custoTotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    document.getElementById('kpi-tempo-medio').textContent = `${(data.kpis.tempoMedioHoras || 0).toFixed(1)}h`;
+
+    // Renderiza listas
+    renderTopListIncompat('top-tecnicos-container', data.topTecnicos, '#00529e');
+    renderTopListIncompat('top-problemas-container', data.topProblemas, '#ff6000');
+    renderTopListIncompat('top-fabricantes-container', data.topFabricantes, '#16a34a');
+
+    // Prepara e renderiza a tabela detalhada
+    allIncompatibilidadeRows = data.tabela || [];
+    incompatCurrentPage = 1;
+    renderIncompatibilidadeTablePage();
+}
+
+function renderTopListIncompat(containerId, data, barColor) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!data || data.length === 0) {
+        container.innerHTML = '<p class="text-sm text-slate-500">Nenhum dado encontrado.</p>';
+        return;
+    }
+
+    const maxCount = data[0][1];
+
+    data.forEach(([item, count]) => {
+        const percentage = (count / maxCount) * 100;
+        
+        const listItem = `
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <span class="font-medium text-slate-700 truncate" title="${item}">${item}</span>
+                    <span class="font-bold text-slate-800">${count}</span>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-1.5">
+                    <div class="h-1.5 rounded-full" style="width: ${percentage}%; background-color: ${barColor};"></div>
+                </div>
+            </div>
+        `;
+        container.innerHTML += listItem;
+    });
+}
+
+function renderIncompatibilidadeTablePage() {
+    const tbody = document.getElementById('incompat-table-body');
+    const pageInfo = document.getElementById('incompat-page-info');
+    const prevBtn = document.getElementById('incompat-prev-page');
+    const nextBtn = document.getElementById('incompat-next-page');
+
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (allIncompatibilidadeRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4">Nenhum registro encontrado para o período.</td></tr>';
+        pageInfo.textContent = '0 de 0';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+    }
+
+    const startIndex = (incompatCurrentPage - 1) * incompatRowsPerPage;
+    const endIndex = startIndex + incompatRowsPerPage;
+    const pageRows = allIncompatibilidadeRows.slice(startIndex, endIndex);
+
+    let tableHtml = '';
+    pageRows.forEach(row => {
+        const shortDetail = row.detalheProblema && row.detalheProblema.length > 70 
+            ? row.detalheProblema.substring(0, 70) + '...' 
+            : row.detalheProblema;
+
+        tableHtml += `
+            <tr class="border-b hover:bg-slate-50">
+                <td class="p-3">${row.data}</td>
+                <td class="p-3">${row.tecnico}</td>
+                <td class="p-3">${row.os}</td>
+                <td class="p-3">${row.pedido}</td>
+                <td class="p-3">${row.produto}</td>
+                <td class="p-3">${row.tipoProblema}</td>
+                <td class="p-3" title="${row.detalheProblema}">${shortDetail}</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = tableHtml;
+    
+    pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allIncompatibilidadeRows.length)} de ${allIncompatibilidadeRows.length}`;
+    prevBtn.disabled = incompatCurrentPage === 1;
+    nextBtn.disabled = endIndex >= allIncompatibilidadeRows.length;
+}
+
+</script>
