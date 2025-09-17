@@ -82,4 +82,71 @@
             </div>
         </section>
     </div>
+
+    <!-- MODAL DO TÉCNICO -->
+    <div id="tecnico-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden items-center justify-center p-4 transition-opacity duration-300 opacity-0" onclick="closeTecnicoModal()">
+        <div id="tecnico-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center p-4 border-b border-slate-200 bg-white rounded-t-xl flex-shrink-0">
+                <h2 id="tecnico-modal-title" class="text-xl font-semibold text-slate-800">Mini Dashboard do Técnico</h2>
+                <button onclick="closeTecnicoModal()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+            </div>
+            <div id="tecnico-modal-body" class="p-6 overflow-y-auto">
+                <div id="tecnico-loader" class="text-center py-20">
+                    <p class="text-slate-500">Carregando dados do técnico...</p>
+                </div>
+                <div id="tecnico-dashboard-content" class="hidden space-y-6">
+                    <!-- KPI -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm text-center">
+                        <h4 class="text-slate-500 font-semibold">Total de Casos no Período</h4>
+                        <p id="tecnico-kpi-total" class="text-5xl font-bold text-slate-800 mt-2">0</p>
+                    </div>
+
+                    <!-- Gráficos -->
+                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                        <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
+                            <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Tipos de Problema Registrados</h3>
+                            <div id="tecnico-problemas-chart" style="width: 100%; height: 300px;"></div>
+                        </div>
+                        <div class="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm">
+                            <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Frequência Mensal</h3>
+                            <div id="tecnico-mensal-chart" style="width: 100%; height: 300px;"></div>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Frequência Diária (no período)</h3>
+                        <div id="tecnico-diaria-chart" style="width: 100%; height: 350px;"></div>
+                    </div>
+                     <!-- Tabela de Casos do Técnico -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4">Casos Registrados no Período</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm text-left">
+                                <thead class="bg-slate-50 text-slate-600 uppercase">
+                                    <tr>
+                                        <th class="p-3">Data</th>
+                                        <th class="p-3">OS</th>
+                                        <th class="p-3">Pedido</th>
+                                        <th class="p-3">Produto</th>
+                                        <th class="p-3">Tipo Problema</th>
+                                        <th class="p-3">Detalhe</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tecnico-casos-table-body" class="text-slate-700">
+                                    <!-- Linhas da tabela serão injetadas aqui -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+                            <span id="tecnico-casos-page-info"></span>
+                            <div class="ml-4">
+                                <button id="tecnico-casos-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                                <button id="tecnico-casos-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
