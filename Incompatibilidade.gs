@@ -139,10 +139,173 @@ function getIncompatibilidadeData(dateRange) {
 }
 
 /**
+ * HELPER: Executa uma query na API de Visualização e retorna a tabela de dados.
+ */
+function executeQuery_(sheet, query) {
+  const url = `https://docs.google.com/spreadsheets/d/${ID_PLANILHA_INCOMPATIBILIDADE}/gviz/tq?tq=${encodeURIComponent(query)}&gid=${sheet.getSheetId()}`;
+  const response = UrlFetchApp.fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }
+  });
+  const jsonText = response.getContentText().replace("/*O_o*/\ngoogle.visualization.Query.setResponse(", "").replace(");", "");
+  const queryResult = JSON.parse(jsonText);
+
+  if (queryResult.status === 'error') {
+    throw new Error(`Erro na query: ${queryResult.errors[0].detailed_message}`);
+  }
+
+  return (queryResult.table.rows || []).map(row => 
+    (row.c || []).map(cell => {
+      if (!cell) return null;
+      if (cell.v instanceof Date || (typeof cell.v === 'string' && cell.v.startsWith('Date('))) {
+        const params = String(cell.v).match(/\d+/g);
+        if (params) return new Date(params[0], params[1], params[2], params[3] || 0, params[4] || 0, params[5] || 0);
+      }
+      return cell.f || cell.v; // Prefere valor formatado se existir
+    })
+  );
+}
+
+
+/**
+ * OTIMIZADO: Busca todos os dados de um técnico com uma única query e processa no servidor para garantir consistência.
+ */
+function getIncompatibilidadeDataForTechnician(dateRange, tecnicoNome) {
+  try {
+    const planilha = SpreadsheetApp.openById(ID_PLANILHA_INCOMPATIBILIDADE);
+    const aba = planilha.getSheetByName("Divergência");
+    if (!aba) throw new Error("Aba 'Divergência' não foi encontrada.");
+    
+    // MODIFICAÇÃO: Define o range para o ano inteiro, do início do ano até a data final do período selecionado.
+    const currentYear = new Date(dateRange.end).getFullYear();
+    const yearStartDate = `${currentYear}-01-01`;
+
+    const baseWhereClause = `WHERE B = '${tecnicoNome}' AND A IS NOT NULL AND A >= date '${yearStartDate}' AND A <= date '${dateRange.end}'`;
+    const queryCasos = `SELECT A, E, F, I, J, K ${baseWhereClause} ORDER BY A DESC`;
+    const dadosBrutosDoAno = executeQuery_(aba, queryCasos);
+
+    // --- Processamento ÚNICO para criar uma fonte de dados limpa e desduplicada ---
+    const osProcessadas = new Set();
+    const casosDetalhadosAno = []; // Armazena todos os casos únicos do ano
+    
+    dadosBrutosDoAno.forEach(linha => {
+      const os = linha[2] ? String(linha[2]).trim() : null;
+      if (!os || osProcessadas.has(os)) return; // Desduplicação CRÍTICA
+      osProcessadas.add(os);
+
+      const data = linha[0];
+      if (data instanceof Date) {
+        casosDetalhadosAno.push({
+          data: data, // Mantém como objeto Date para facilitar o processamento
+          detalheProblema: linha[1],
+          os: os,
+          pedido: linha[3],
+          produto: linha[4],
+          tipoProblema: (linha[5] || "Não especificado").trim()
+        });
+      }
+    });
+
+    // --- Agora, cria as agregações a partir dos dados limpos do ano ---
+    const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const frequenciaMensalAnual = {};
+    const problemasPorMes = {};
+    const contagemProblemasPeriodo = {};
+    const frequenciaDiariaPeriodo = {};
+    const casosTabelaPeriodo = [];
+    let totalCasosPeriodo = 0;
+
+    const startDatePeriodo = new Date(dateRange.start + 'T00:00:00');
+    const endDatePeriodo = new Date(dateRange.end + 'T23:59:59');
+
+    casosDetalhadosAno.forEach(caso => {
+      const dataCaso = caso.data;
+      
+      // Agregação Anual
+      const ano = dataCaso.getFullYear();
+      const mesIndex = dataCaso.getMonth();
+      const mesLabel = `${monthNames[mesIndex]}/${String(ano).slice(-2)}`;
+      
+      frequenciaMensalAnual[mesLabel] = (frequenciaMensalAnual[mesLabel] || 0) + 1;
+
+      if (!problemasPorMes[mesLabel]) {
+        problemasPorMes[mesLabel] = {};
+      }
+      problemasPorMes[mesLabel][caso.tipoProblema] = (problemasPorMes[mesLabel][caso.tipoProblema] || 0) + 1;
+      
+      // Agregação do Período Selecionado
+      if (dataCaso >= startDatePeriodo && dataCaso <= endDatePeriodo) {
+        totalCasosPeriodo++;
+        contagemProblemasPeriodo[caso.tipoProblema] = (contagemProblemasPeriodo[caso.tipoProblema] || 0) + 1;
+        
+        const diaKey = Utilities.formatDate(dataCaso, "GMT-3", "dd/MM");
+        frequenciaDiariaPeriodo[diaKey] = (frequenciaDiariaPeriodo[diaKey] || 0) + 1;
+
+        casosTabelaPeriodo.push({
+          data: Utilities.formatDate(dataCaso, "GMT-3", "dd/MM/yyyy HH:mm"),
+          os: caso.os,
+          pedido: caso.pedido,
+          produto: caso.produto,
+          tipoProblema: caso.tipoProblema,
+          detalheProblema: caso.detalheProblema
+        });
+      }
+    });
+
+    // --- Formatação final dos dados para o front-end ---
+    const dataTableProblemasPeriodo = [['Problema', 'Quantidade'], ...Object.entries(contagemProblemasPeriodo).sort(([, a], [, b]) => b - a)];
+    
+    // Garante a ordem cronológica dos meses
+    const mesesOrdenados = Object.keys(frequenciaMensalAnual).sort((a, b) => {
+        const [mesA, anoA] = a.split('/');
+        const [mesB, anoB] = b.split('/');
+        const indexA = monthNames.indexOf(mesA);
+        const indexB = monthNames.indexOf(mesB);
+        if (anoA !== anoB) return parseInt(anoA) - parseInt(anoB);
+        return indexA - indexB;
+    });
+    const dataTableMensalAnual = [['Mês', 'Casos'], ...mesesOrdenados.map(mes => [mes, frequenciaMensalAnual[mes]])];
+    
+    // Transforma o `problemasPorMes` para o formato de datatable
+    const dataTableProblemasPorMes = {};
+    for (const mes in problemasPorMes) {
+      dataTableProblemasPorMes[mes] = [['Problema', 'Quantidade'], ...Object.entries(problemasPorMes[mes]).sort(([, a], [, b]) => b - a)];
+    }
+
+    const dataTableDiariaPeriodo = [['Dia', 'Casos'], ...Object.entries(frequenciaDiariaPeriodo).sort(([keyA], [keyB]) => {
+      const [diaA, mesA] = keyA.split('/');
+      const [diaB, mesB] = keyB.split('/');
+      if (mesA !== mesB) return parseInt(mesA) - parseInt(mesB);
+      return parseInt(diaA) - parseInt(diaB);
+    })];
+    
+    return {
+      totalCasos: totalCasosPeriodo,
+      problemas: dataTableProblemasPeriodo.length > 1 ? dataTableProblemasPeriodo : [],
+      frequenciaMensal: dataTableMensalAnual.length > 1 ? dataTableMensalAnual : [],
+      frequenciaDiaria: dataTableDiariaPeriodo.length > 1 ? dataTableDiariaPeriodo : [],
+      casos: casosTabelaPeriodo.sort((a, b) => new Date(b.data.split(' ')[0].split('/').reverse().join('-') + ' ' + b.data.split(' ')[1]) - new Date(a.data.split(' ')[0].split('/').reverse().join('-') + ' ' + a.data.split(' ')[1])),
+      problemasPorMes: dataTableProblemasPorMes
+    };
+
+  } catch (e) {
+    Logger.log(`Erro em getIncompatibilidadeDataForTechnician: ${e.stack}`);
+    return { error: e.message };
+  }
+}
+
+/**
  * Versão com cache da função de busca de dados.
  */
 function getIncompatibilidadeDataWithCache(dateRange) {
   const cacheKey = `incompatibilidade_data_v6_query_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getIncompatibilidadeData, [dateRange]);
+}
+
+/**
+ * Versão com cache da função de busca de dados de um técnico.
+ */
+function getIncompatibilidadeDataForTechnicianWithCache(dateRange, tecnicoNome) {
+  const cacheKey = `incompat_tecnico_v9_annual_interactive_${dateRange.start}_${dateRange.end}_${tecnicoNome.replace(/\s+/g, '_')}`;
+  return getOrSetCache(cacheKey, getIncompatibilidadeDataForTechnician, [dateRange, tecnicoNome]);
 }
 
