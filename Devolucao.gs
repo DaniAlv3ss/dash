@@ -216,4 +216,3 @@ function getDevolucaoDataWithCache(dateRange) {
   const cacheKey = `devolucao_data_v8_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDevolucaoData, [dateRange]);
 }
-
