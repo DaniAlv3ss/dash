@@ -42,8 +42,15 @@
             document.getElementById('clear-filter-btn').addEventListener('click', clearMotiveFilter);
             document.getElementById('export-comments-btn').addEventListener('click', exportComments);
             document.getElementById('export-support-btn').addEventListener('click', exportSupportDetails);
+            
+            // Listeners para o modal de heatmap
+            document.getElementById('heatmap-month-picker').addEventListener('change', fetchHeatmapData);
+            document.querySelectorAll('.heatmap-filter-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    toggleHeatmapClassificationFilter(e.currentTarget);
+                });
+            });
 
-            // OTIMIZAÇÃO: Substitui as duas chamadas de fetch por uma única chamada unificada.
             fetchInitialData();
 
             window.addEventListener('click', function (event) {
@@ -55,25 +62,19 @@
                 });
             });
 
-            // Ativa o novo gráfico de timeline
             initializeNpsTimeline();
         });
     }
 
-    // NOVA FUNÇÃO para o carregamento unificado
     function fetchInitialData() {
-        // --- INÍCIO DA MODIFICAÇÃO ---
-        // Verifica se os dados do dashboard e da evolução já existem no cache.
         if (pageCache.data.dashboard && pageCache.data.evolution) {
-            // Se existirem, reutiliza os dados cacheados para recarregar a página instantaneamente.
             onInitialDataReceived({
                 mainData: pageCache.data.dashboard,
                 evolutionData: pageCache.data.evolution
             });
-            return; // Interrompe a função para não buscar dados do servidor.
+            return; 
         }
-        // --- FIM DA MODIFICAÇÃO ---
-
+        
         document.getElementById('loader').style.display = 'block';
         document.getElementById('dashboard-content').style.visibility = 'hidden';
         google.script.run
@@ -82,8 +83,6 @@
             .getInitialDashboardAndEvolutionData();
     }
 
-
-    // NOVA FUNÇÃO para receber os dados unificados
     function onInitialDataReceived(initialData) {
         onMainDataReceived(initialData.mainData);
         onEvolutionDataReceived(initialData.evolutionData);
@@ -130,7 +129,7 @@
     }
 
     function fetchEvolutionData(groupBy, customRange = null) {
-        if (pageCache.data.evolution && !customRange) { // Only use cache for the main view
+        if (pageCache.data.evolution && !customRange) {
             onEvolutionDataReceived(pageCache.data.evolution);
             return;
         }
@@ -178,7 +177,6 @@
             document.getElementById('word-analysis-section').style.display = 'none';
         }
 
-        // NOVA CHAMADA para buscar e renderizar a timeline de ações recentes
         google.script.run
             .withSuccessHandler(renderRecentActions)
             .withFailureHandler(error => {
@@ -1013,4 +1011,183 @@
         container.appendChild(timeline);
     }
 
+    // --- Funções para o Modal Heatmap ---
+    function openHeatmapModal() {
+        const modal = document.getElementById('heatmap-modal');
+        const modalContent = document.getElementById('heatmap-modal-content');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        setTimeout(() => {
+            modal.classList.remove('opacity-0');
+            modalContent.classList.remove('scale-95');
+        }, 10);
+
+        const monthPicker = document.getElementById('heatmap-month-picker');
+        if (!monthPicker.value) {
+            const mainEndDate = document.getElementById('endDate').value;
+            monthPicker.value = mainEndDate.substring(0, 7);
+        }
+
+        const activeFilters = Array.from(document.querySelectorAll('#heatmap-classification-filters .heatmap-filter-btn.active')).map(btn => btn.dataset.classification);
+        if (activeFilters.length === 0) {
+            document.querySelectorAll('#heatmap-classification-filters .heatmap-filter-btn').forEach(btn => {
+                btn.classList.add('bg-blue-600', 'text-white', 'active');
+                btn.classList.remove('bg-slate-100', 'text-slate-600');
+            });
+        }
+        
+        fetchHeatmapData();
+    }
+
+    function closeHeatmapModal() {
+        const modal = document.getElementById('heatmap-modal');
+        const modalContent = document.getElementById('heatmap-modal-content');
+        modal.classList.add('opacity-0');
+        modalContent.classList.add('scale-95');
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }, 300);
+    }
+    
+    function toggleHeatmapClassificationFilter(button) {
+        button.classList.toggle('active');
+        button.classList.toggle('bg-blue-600');
+        button.classList.toggle('text-white');
+        button.classList.toggle('bg-slate-100');
+        button.classList.toggle('text-slate-600');
+        fetchHeatmapData();
+    }
+
+    function fetchHeatmapData() {
+        document.getElementById('heatmap-loader').style.display = 'block';
+        document.getElementById('heatmap-container').classList.add('hidden');
+        
+        const referenceMonth = document.getElementById('heatmap-month-picker').value;
+        const classifications = Array.from(document.querySelectorAll('#heatmap-classification-filters .heatmap-filter-btn.active'))
+                                     .map(btn => btn.dataset.classification);
+
+        if (!referenceMonth) {
+            document.getElementById('heatmap-loader').innerHTML = '<p class="text-slate-500">Por favor, selecione um mês de referência.</p>';
+            return;
+        }
+        if (classifications.length === 0) {
+            document.getElementById('heatmap-loader').style.display = 'none';
+            document.getElementById('heatmap-container').classList.remove('hidden');
+            document.getElementById('heatmap-thead').innerHTML = '';
+            document.getElementById('heatmap-tbody').innerHTML = '<tr><td colspan="99" class="text-center p-8 text-slate-500">Selecione ao menos uma classificação.</td></tr>';
+            return;
+        }
+
+        const filters = { referenceMonth, classifications };
+
+        google.script.run
+            .withSuccessHandler(onHeatmapDataReceived)
+            .withFailureHandler(onFailure)
+            .getMotivesHeatmapDataWithCache(filters);
+    }
+
+    function onHeatmapDataReceived(data) {
+        if (data.error) {
+            document.getElementById('heatmap-loader').innerHTML = `<p class="text-red-500 p-4">Erro ao carregar dados: ${data.error}</p>`;
+            return;
+        }
+        renderHeatmap(data);
+    }
+
+    function renderHeatmap({ headerMonths, heatmapData }) {
+        document.getElementById('heatmap-loader').style.display = 'none';
+        document.getElementById('heatmap-container').classList.remove('hidden');
+
+        const thead = document.getElementById('heatmap-thead');
+        const tbody = document.getElementById('heatmap-tbody');
+        thead.innerHTML = '';
+        tbody.innerHTML = '';
+
+        if (!heatmapData || heatmapData.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="99" class="text-center p-8 text-slate-500">Nenhum dado de motivo encontrado para os filtros selecionados.</td></tr>';
+            return;
+        }
+
+        let headerHtml = `
+            <tr>
+                <th scope="col" class="px-3 py-2 text-xs font-medium text-slate-600 uppercase tracking-wider text-left w-1/6">Categoria</th>
+                <th scope="col" class="px-3 py-2 text-xs font-medium text-slate-600 uppercase tracking-wider text-left w-2/6">Avaliação</th>`;
+        headerMonths.forEach(month => {
+            headerHtml += `<th scope="col" class="px-3 py-2 text-xs font-medium text-slate-600 uppercase tracking-wider text-center w-1/12">${month.name}</th>`;
+        });
+        headerHtml += `<th scope="col" class="px-3 py-2 text-xs font-medium text-slate-600 uppercase tracking-wider text-center w-1/12">Total</th></tr>`;
+        thead.innerHTML = headerHtml;
+
+        const getHeatmapColor = (value) => {
+            if (value === null || value === 0 || value === undefined) return 'bg-white';
+            if (value >= 4) return 'bg-orange-600 text-white';
+            if (value >= 3) return 'bg-orange-500 text-white';
+            if (value >= 2) return 'bg-orange-400 text-slate-800';
+            if (value >= 1) return 'bg-orange-300 text-slate-800';
+            return 'bg-white';
+        };
+
+        heatmapData.forEach((data) => {
+            const categoryRowCount = data.items.length + 1;
+
+            data.items.forEach((item, itemIndex) => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-50';
+
+                if (itemIndex === 0) {
+                    const categoryCell = document.createElement('td');
+                    categoryCell.textContent = data.category;
+                    categoryCell.className = 'px-3 py-1.5 bg-blue-800 text-white text-xs font-bold text-center align-middle';
+                    categoryCell.setAttribute('rowspan', categoryRowCount);
+                    row.appendChild(categoryCell);
+                }
+
+                const evaluationCell = document.createElement('td');
+                evaluationCell.textContent = item.evaluation;
+                evaluationCell.className = 'px-3 py-1.5 text-slate-700 text-xs';
+                row.appendChild(evaluationCell);
+
+                headerMonths.forEach(month => {
+                    const cell = document.createElement('td');
+                    const value = item[month.key];
+                    cell.textContent = value > 0 ? value : '';
+                    cell.className = `px-3 py-1.5 text-center font-medium transition-colors duration-300 text-xs ${getHeatmapColor(value)}`;
+                    row.appendChild(cell);
+                });
+                
+                const totalCell = document.createElement('td');
+                totalCell.textContent = item.total > 0 ? item.total : '';
+                totalCell.className = `px-3 py-1.5 text-center font-bold bg-slate-100 text-slate-800 text-xs`;
+                row.appendChild(totalCell);
+
+                tbody.appendChild(row);
+            });
+            
+            const totalRow = document.createElement('tr');
+            totalRow.className = 'bg-slate-200 font-bold';
+            
+            const totalLabelCell = document.createElement('td');
+            totalLabelCell.textContent = `${data.category} Total`;
+            totalLabelCell.className = 'px-3 py-1.5 text-slate-800 text-xs';
+            totalRow.appendChild(totalLabelCell);
+
+            headerMonths.forEach(month => {
+                const cell = document.createElement('td');
+                const value = data.total[month.key];
+                cell.textContent = value > 0 ? value : '';
+                cell.className = 'px-3 py-1.5 text-center text-slate-800 text-xs';
+                totalRow.appendChild(cell);
+            });
+            
+            const grandTotalCell = document.createElement('td');
+            grandTotalCell.textContent = data.total.total > 0 ? data.total.total : '';
+            grandTotalCell.className = 'px-3 py-1.5 text-center text-slate-900 text-xs';
+            totalRow.appendChild(grandTotalCell);
+
+            tbody.appendChild(totalRow);
+        });
+    }
+
 </script>
+
