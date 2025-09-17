@@ -458,6 +458,120 @@ function getDetractorSupportDetails(dateRange, reasons) {
   return details;
 }
 
+/**
+ * Busca e processa dados para o heatmap de motivos de NPS, agora com filtros.
+ */
+function getMotivesHeatmapData(filters) {
+  try {
+    const planilhaNPS = SpreadsheetApp.openById(ID_PLANILHA_NPS);
+    const abaNPS = planilhaNPS.getSheetByName(NOME_ABA_NPS);
+    if (!abaNPS) throw new Error("Aba NPS não encontrada.");
+
+    const todosDadosNPS = abaNPS.getRange(2, 1, abaNPS.getLastRow() - 1, abaNPS.getLastColumn()).getValues();
+
+    // 1. Pega filtros ou define padrões
+    const referenceMonth = filters.referenceMonth; // ex: '2025-09'
+    const classifications = filters.classifications && filters.classifications.length > 0 ? filters.classifications : ['promotor', 'neutro', 'detrator'];
+
+    // 2. Determina os 3 meses com base no mês de referência
+    const [year, month] = referenceMonth.split('-').map(Number);
+    const endDate = new Date(year, month, 0); 
+    
+    const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+    const headerMonths = [];
+    const monthKeys = []; // Formato YYYY-MM
+
+    for (let i = 0; i < 3; i++) {
+      const targetDate = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1);
+      const monthName = monthNames[targetDate.getMonth()];
+      const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+      headerMonths.unshift({ key: monthKey, name: monthName });
+      monthKeys.unshift(monthKey);
+    }
+    
+    const firstMonthDate = new Date(monthKeys[0] + "-01T05:00:00Z");
+    const startDateForFilter = Utilities.formatDate(firstMonthDate, "UTC", "yyyy-MM-dd");
+    const endDateForFilter = Utilities.formatDate(new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0), "UTC", "yyyy-MM-dd");
+
+    // 3. Filtra dados pelo período de 3 meses
+    const dadosFiltradosPorData = todosDadosNPS.filter(linha => {
+      const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
+      if (!dataAvaliacao || !(dataAvaliacao instanceof Date)) return false;
+      const dataFormatada = Utilities.formatDate(dataAvaliacao, "UTC", "yyyy-MM-dd");
+      return dataFormatada >= startDateForFilter && dataFormatada <= endDateForFilter;
+    });
+
+    const dadosUnicos = getUniqueValidRows(dadosFiltradosPorData, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO);
+    
+    // 4. Filtra por classificação
+    const dadosFiltradosPorClassificacao = dadosUnicos.filter(linha => {
+        const classificacao = linha[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
+        return classifications.includes(classificacao);
+    });
+
+    // 5. Processa os motivos
+    const motivesCount = {};
+    const categories = {
+      'Funcionamento do PC': INDICES_NPS.MOTIVO_FUNCIONAMENTO,
+      'Qualidade de Montagem': INDICES_NPS.MOTIVO_QUALIDADE_MONTAGEM,
+      'Visual do PC': INDICES_NPS.MOTIVO_VISUAL_PC,
+      'Transporte': INDICES_NPS.MOTIVO_TRANSPORTE
+    };
+
+    dadosFiltradosPorClassificacao.forEach(linha => {
+      const dataAvaliacao = linha[INDICES_NPS.DATA_AVALIACAO];
+      const monthKey = Utilities.formatDate(dataAvaliacao, "UTC", "yyyy-MM");
+
+      if (monthKeys.includes(monthKey)) {
+        for (const category in categories) {
+          const motive = linha[categories[category]]?.toString().trim();
+          if (motive) {
+            if (!motivesCount[category]) motivesCount[category] = {};
+            if (!motivesCount[category][motive]) motivesCount[category][motive] = {};
+            motivesCount[category][motive][monthKey] = (motivesCount[category][motive][monthKey] || 0) + 1;
+          }
+        }
+      }
+    });
+
+    // 6. Formata a saída
+    const heatmapData = [];
+    for (const category in categories) {
+       if(!motivesCount[category]) continue;
+
+      const categoryData = { category: category, items: [], total: {} };
+      monthKeys.forEach(key => categoryData.total[key] = 0);
+      categoryData.total.total = 0;
+
+      const sortedMotives = Object.keys(motivesCount[category]).sort((a, b) => {
+          const totalA = Object.values(motivesCount[category][a]).reduce((sum, count) => sum + count, 0);
+          const totalB = Object.values(motivesCount[category][b]).reduce((sum, count) => sum + count, 0);
+          return totalB - totalA;
+      });
+
+      for (const motive of sortedMotives) {
+        const item = { evaluation: motive, total: 0 };
+        monthKeys.forEach(key => {
+          const value = motivesCount[category][motive][key] || 0;
+          item[key] = value;
+          item.total += value;
+          categoryData.total[key] += value;
+        });
+        categoryData.items.push(item);
+      }
+      
+      categoryData.total.total = monthKeys.reduce((acc, key) => acc + categoryData.total[key], 0);
+      heatmapData.push(categoryData);
+    }
+
+    return { headerMonths, heatmapData };
+
+  } catch (e) {
+    Logger.log(`Erro em getMotivesHeatmapData: ${e.stack}`);
+    return { error: e.message, headerMonths: [], heatmapData: [] };
+  }
+}
+
 // ===========================================
 // === SEÇÃO DE ANÁLISE COM IA (GEMINI) ======
 // ===========================================
@@ -630,4 +744,9 @@ function getWordFrequencyAnalysisWithCache(comments) {
     return getOrSetCache(cacheKey, getWordFrequencyAnalysis, [comments]);
 }
 
+function getMotivesHeatmapDataWithCache(filters) {
+  const classificationsKey = filters.classifications.sort().join('_');
+  const cacheKey = `heatmap_data_v4_${filters.referenceMonth}_${classificationsKey}`;
+  return getOrSetCache(cacheKey, getMotivesHeatmapData, [filters]);
+}
 
