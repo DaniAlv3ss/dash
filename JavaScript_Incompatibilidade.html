@@ -3,10 +3,15 @@
 // === LÓGICA DA PÁGINA DE INCOMPATIBILIDADES =======================
 // ==================================================================
 
-// Variáveis globais para a tabela
+// Variáveis globais para a tabela principal
 let allIncompatibilidadeRows = [];
 let incompatCurrentPage = 1;
 const incompatRowsPerPage = 20;
+
+// Variáveis globais para a tabela do modal do técnico
+let allTecnicoCasos = [];
+let tecnicoCurrentPage = 1;
+const tecnicoRowsPerPage = 10;
 
 function initializeIncompatibilidadePage() {
     try {
@@ -30,6 +35,20 @@ function initializeIncompatibilidadePage() {
             if (incompatCurrentPage * incompatRowsPerPage < allIncompatibilidadeRows.length) {
                 incompatCurrentPage++;
                 renderIncompatibilidadeTablePage();
+            }
+        });
+
+        // Adiciona event listeners para a paginação do modal
+        document.getElementById('tecnico-casos-prev-page').addEventListener('click', () => {
+            if (tecnicoCurrentPage > 1) {
+                tecnicoCurrentPage--;
+                renderTecnicoCasosPage();
+            }
+        });
+        document.getElementById('tecnico-casos-next-page').addEventListener('click', () => {
+            if (tecnicoCurrentPage * tecnicoRowsPerPage < allTecnicoCasos.length) {
+                tecnicoCurrentPage++;
+                renderTecnicoCasosPage();
             }
         });
 
@@ -162,10 +181,12 @@ function renderIncompatibilidadeTablePage() {
             ? row.detalheProblema.substring(0, 70) + '...' 
             : row.detalheProblema;
 
+        const tecnicoHtml = `<span class="font-semibold cursor-pointer hover:text-orange-500" onclick="openTecnicoModal('${row.tecnico.replace(/'/g, "\\'")}')">${row.tecnico}</span>`;
+
         tableHtml += `
-            <tr class="border-b hover:bg-slate-50">
+            <tr class="border-b hover:bg-orange-50 transition-colors">
                 <td class="p-3">${row.data}</td>
-                <td class="p-3">${row.tecnico}</td>
+                <td class="p-3">${tecnicoHtml}</td>
                 <td class="p-3">${row.os}</td>
                 <td class="p-3">${row.pedido}</td>
                 <td class="p-3">${row.produto}</td>
@@ -181,4 +202,190 @@ function renderIncompatibilidadeTablePage() {
     nextBtn.disabled = endIndex >= allIncompatibilidadeRows.length;
 }
 
+// --- Funções do Modal do Técnico ---
+
+function openTecnicoModal(tecnicoNome) {
+    const modal = document.getElementById('tecnico-modal');
+    const modalContent = document.getElementById('tecnico-modal-content');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalContent.classList.remove('scale-95');
+    }, 10);
+
+    document.getElementById('tecnico-modal-title').textContent = `Mini Dashboard: ${tecnicoNome}`;
+    document.getElementById('tecnico-loader').style.display = 'block';
+    document.getElementById('tecnico-dashboard-content').classList.add('hidden');
+
+    const dateRange = {
+        start: document.getElementById('incompat-startDate').value,
+        end: document.getElementById('incompat-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(onTecnicoDataReceived)
+        .withFailureHandler(error => {
+            document.getElementById('tecnico-loader').innerHTML = `<p class="text-red-500">Erro ao carregar dados: ${error.message}</p>`;
+        })
+        .getIncompatibilidadeDataForTechnicianWithCache(dateRange, tecnicoNome);
+}
+
+function onTecnicoDataReceived(data) {
+    if (data.error) {
+         document.getElementById('tecnico-loader').innerHTML = `<p class="text-red-500">Erro: ${data.error}</p>`;
+         return;
+    }
+
+    document.getElementById('tecnico-loader').style.display = 'none';
+    document.getElementById('tecnico-dashboard-content').classList.remove('hidden');
+
+    document.getElementById('tecnico-kpi-total').textContent = data.totalCasos || 0;
+
+    drawTecnicoProblemasChart(data.problemas);
+    drawTecnicoFrequenciaChart('tecnico-mensal-chart', data.frequenciaMensal);
+    drawTecnicoFrequenciaChart('tecnico-diaria-chart', data.frequenciaDiaria);
+    
+    allTecnicoCasos = data.casos || [];
+    tecnicoCurrentPage = 1;
+    renderTecnicoCasosPage();
+}
+
+function closeTecnicoModal() {
+    const modal = document.getElementById('tecnico-modal');
+    const modalContent = document.getElementById('tecnico-modal-content');
+    modal.classList.add('opacity-0');
+    modalContent.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 300);
+}
+
+function drawTecnicoProblemasChart(chartData) {
+    const chartDiv = document.getElementById('tecnico-problemas-chart');
+    if (!chartData || chartData.length <= 1) {
+        chartDiv.innerHTML = '<p class="text-center text-slate-500 pt-10">Nenhum problema registrado.</p>';
+        return;
+    }
+    const data = google.visualization.arrayToDataTable(chartData);
+    const options = {
+        pieHole: 0.4,
+        fontName: 'Inter',
+        legend: { position: 'right', textStyle: { color: '#333', fontSize: 12 } },
+        chartArea: { left: 10, top: 20, width: '95%', height: '85%' },
+        colors: ['#00529e', '#ff6000', '#16a34a', '#f59e0b', '#6366f1']
+    };
+    const chart = new google.visualization.PieChart(chartDiv);
+    chart.draw(data, options);
+}
+
+function drawTecnicoFrequenciaChart(elementId, chartData) {
+    const chartDiv = document.getElementById(elementId);
+    if (!chartData || chartData.length <= 1) {
+        chartDiv.innerHTML = `<p class="text-center text-slate-500 pt-10">Dados insuficientes para gerar o gráfico.</p>`;
+        return;
+    }
+    const data = google.visualization.arrayToDataTable(chartData);
+
+    let chart;
+    let options;
+
+    const baseOptions = {
+        fontName: 'Inter',
+        legend: { position: 'none' },
+        hAxis: { textStyle: { fontSize: 11, color: '#333' } },
+        vAxis: { 
+            title: 'Casos',
+            minValue: 0, 
+            gridlines: { color: '#e2e8f0' }, 
+            format: '0',
+            textStyle: { color: '#333' }
+        },
+        annotations: { 
+            alwaysOutside: true, 
+            textStyle: { 
+                fontSize: 12, 
+                color: '#1e293b', 
+                auraColor: 'none' 
+            } 
+        },
+        chartArea: { left: 50, top: 30, width: '90%', height: '75%' },
+        colors: ['#00529e']
+    };
+
+    if (elementId === 'tecnico-diaria-chart') {
+        const maxValue = chartData.slice(1).reduce((max, row) => Math.max(max, row[1]), 0);
+        
+        options = {
+            ...baseOptions,
+            vAxis: {
+                ...baseOptions.vAxis,
+                viewWindow: { min: 0, max: maxValue + 5 }
+            },
+            curveType: 'function',
+            pointsVisible: true,
+            pointSize: 5,
+        };
+        chart = new google.visualization.LineChart(chartDiv);
+    } else {
+        options = {
+            ...baseOptions,
+            bar: { groupWidth: '60%' },
+        };
+        chart = new google.visualization.ColumnChart(chartDiv);
+    }
+
+    const view = new google.visualization.DataView(data);
+    view.setColumns([0, 1, { calc: "stringify", sourceColumn: 1, type: "string", role: "annotation" }]);
+    
+    chart.draw(view, options);
+}
+
+function renderTecnicoCasosPage() {
+    const tbody = document.getElementById('tecnico-casos-table-body');
+    const pageInfo = document.getElementById('tecnico-casos-page-info');
+    const prevBtn = document.getElementById('tecnico-casos-prev-page');
+    const nextBtn = document.getElementById('tecnico-casos-next-page');
+
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (allTecnicoCasos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum caso registrado para este técnico no período.</td></tr>';
+        pageInfo.textContent = '0 de 0';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+    }
+
+    const startIndex = (tecnicoCurrentPage - 1) * tecnicoRowsPerPage;
+    const endIndex = startIndex + tecnicoRowsPerPage;
+    const pageRows = allTecnicoCasos.slice(startIndex, endIndex);
+
+    let tableHtml = '';
+    pageRows.forEach(row => {
+        const shortDetail = row.detalheProblema && row.detalheProblema.length > 50 
+            ? row.detalheProblema.substring(0, 50) + '...' 
+            : row.detalheProblema;
+
+        tableHtml += `
+            <tr class="border-b border-slate-200">
+                <td class="p-3">${row.data}</td>
+                <td class="p-3">${row.os}</td>
+                <td class="p-3">${row.pedido}</td>
+                <td class="p-3">${row.produto}</td>
+                <td class="p-3">${row.tipoProblema}</td>
+                <td class="p-3" title="${row.detalheProblema}">${shortDetail}</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = tableHtml;
+    
+    pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allTecnicoCasos.length)} de ${allTecnicoCasos.length}`;
+    prevBtn.disabled = tecnicoCurrentPage === 1;
+    nextBtn.disabled = endIndex >= allTecnicoCasos.length;
+}
+
 </script>
+
