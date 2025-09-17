@@ -357,3 +357,4 @@ function getDailyFlowChartDataWithCache(dateRange) {
   const cacheKey = `daily_flow_chart_data_v2_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDailyFlowChartData, [dateRange]);
 }
+
