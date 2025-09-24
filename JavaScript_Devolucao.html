@@ -3,11 +3,16 @@
 // === LÓGICA DA PÁGINA DEVOLUÇÃO ===================================
 // ==================================================================
 
-// Variáveis globais para paginação da tabela detalhada
+// Variáveis de paginação para a tabela de produtos detalhada
 let allDevolucaoProdutos = [];
 let allDevolucaoMotivos = [];
 let devolucaoCurrentPage = 1;
 const devolucaoRowsPerPage = 20;
+
+// Variáveis de paginação para a nova tabela de pedidos
+let allPedidosDevolucao = [];
+let pedidosDevolucaoCurrentPage = 1;
+const pedidosDevolucaoRowsPerPage = 20;
 
 function initializeDevolucaoPage() {
     google.charts.load('current', { 'packages': ['corechart'] });
@@ -18,11 +23,13 @@ function initializeDevolucaoPage() {
             document.getElementById('dev-endDate').value = today.toISOString().split('T')[0];
             document.getElementById('dev-startDate').value = firstDayMonth.toISOString().split('T')[0];
             
+            // Listeners do filtro de data
             document.getElementById('dev-applyButton').addEventListener('click', applyDevolucaoDateFilter);
             document.getElementById('dev-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
             document.getElementById('dev-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
             updateDevolucaoDateRangeDisplay();
             
+            // Listeners da paginação da tabela de produtos
             document.getElementById('dev-detalhada-prev-page').addEventListener('click', () => {
                 if (devolucaoCurrentPage > 1) {
                     devolucaoCurrentPage--;
@@ -33,6 +40,20 @@ function initializeDevolucaoPage() {
                 if (devolucaoCurrentPage * devolucaoRowsPerPage < allDevolucaoProdutos.length) {
                     devolucaoCurrentPage++;
                     renderDevolucaoDetalhadaPage();
+                }
+            });
+
+            // Listeners da paginação da nova tabela de pedidos
+            document.getElementById('pedidos-devolucao-prev-page').addEventListener('click', () => {
+                if (pedidosDevolucaoCurrentPage > 1) {
+                    pedidosDevolucaoCurrentPage--;
+                    renderPedidosDevolucaoPage();
+                }
+            });
+            document.getElementById('pedidos-devolucao-next-page').addEventListener('click', () => {
+                if (pedidosDevolucaoCurrentPage * pedidosDevolucaoRowsPerPage < allPedidosDevolucao.length) {
+                    pedidosDevolucaoCurrentPage++;
+                    renderPedidosDevolucaoPage();
                 }
             });
 
@@ -78,7 +99,7 @@ function fetchDevolucaoData() {
     google.script.run
         .withSuccessHandler(onDevolucaoDataReceived)
         .withFailureHandler(error => displayError('Falha ao buscar dados de Devolução', error))
-        .getDevolucaoData(dateRange);
+        .getDevolucaoDataWithCache(dateRange);
 }
 
 function onDevolucaoDataReceived(data) {
@@ -93,21 +114,31 @@ function onDevolucaoDataReceived(data) {
     if (loader) loader.style.display = 'none';
     if (content) content.style.visibility = 'visible';
 
+    // KPIs
     document.getElementById('kpi-total-devolvido').textContent = (data.kpis.totalDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     document.getElementById('kpi-valor-cancelamento').textContent = (data.kpis.valorCancelamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     document.getElementById('kpi-devolucoes-unicas').textContent = data.kpis.devolucoesUnicas || 0;
     document.getElementById('kpi-itens-devolvidos').textContent = data.kpis.totalItensDevolvidos || 0;
     
+    // Cards e Listas
     renderMotivosCards('top-motivos-container', data.topMotivos, data.kpis.devolucoesUnicas);
     renderTopList('top-categorias-container', data.topCategorias, '#059669', false);
     renderTopList('top-fabricantes-container', data.topFabricantes, '#d97706');
 
+    // Gráficos
     drawDevolucoesChart(data.devolucoesPorMes);
+    drawDevolucoesDiariasChart(data.devolucoesPorDia);
 
+    // Tabela de Produtos Detalhada
     allDevolucaoProdutos = data.tabelaDetalhada.produtos || [];
     allDevolucaoMotivos = data.tabelaDetalhada.motivos || [];
     devolucaoCurrentPage = 1;
     renderDevolucaoDetalhadaPage();
+
+    // Nova Tabela de Pedidos
+    allPedidosDevolucao = data.tabelaPedidos || [];
+    pedidosDevolucaoCurrentPage = 1;
+    renderPedidosDevolucaoPage();
 }
 
 function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
@@ -122,30 +153,17 @@ function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
 
     motivosData.forEach(([motivo, data]) => {
         const { quantidade, valor, quantidadeAnterior } = data;
-        
         const percentage = (quantidade / totalDevolucoes) * 100;
         const valorFormatado = (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
         let trendIndicatorHtml = '';
         const diff = quantidade - quantidadeAnterior;
 
         if (diff > 0) {
-            trendIndicatorHtml = `
-                <span class="flex items-center text-xs font-semibold text-red-500" title="Comparado ao período anterior">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" /></svg>
-                    +${diff}
-                </span>`;
+            trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-red-500" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" /></svg>+${diff}</span>`;
         } else if (diff < 0) {
-            trendIndicatorHtml = `
-                <span class="flex items-center text-xs font-semibold text-emerald-500" title="Comparado ao período anterior">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
-                    ${diff}
-                </span>`;
+            trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-emerald-500" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>${diff}</span>`;
         } else {
-             trendIndicatorHtml = `
-                <span class="flex items-center text-xs font-semibold text-slate-400" title="Comparado ao período anterior">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h14" /></svg>
-                </span>`;
+             trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-slate-400" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h14" /></svg></span>`;
         }
 
         const cardHtml = `
@@ -171,18 +189,14 @@ function renderTopList(containerId, data, barColor, isProduct = false) {
     const container = document.getElementById(containerId);
     if (!container) return;
     container.innerHTML = '';
-
     if (!data || data.length === 0) {
         container.innerHTML = '<p class="text-sm text-slate-500">Nenhum dado encontrado.</p>';
         return;
     }
-
     const maxCount = data[0][1];
-
     data.forEach(([item, count]) => {
         const percentage = (count / maxCount) * 100;
         const shortItem = isProduct && item.length > 50 ? item.substring(0, 50) + '...' : item;
-        
         const listItem = `
             <div>
                 <div class="flex justify-between text-sm mb-1">
@@ -192,8 +206,7 @@ function renderTopList(containerId, data, barColor, isProduct = false) {
                 <div class="w-full bg-slate-200 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full" style="width: ${percentage}%; background-color: ${barColor};"></div>
                 </div>
-            </div>
-        `;
+            </div>`;
         container.innerHTML += listItem;
     });
 }
@@ -201,47 +214,88 @@ function renderTopList(containerId, data, barColor, isProduct = false) {
 function drawDevolucoesChart(chartData) {
     const chartDiv = document.getElementById('devolucoes-mes-chart');
     if (!chartDiv) return;
-
     if (!chartData || chartData.length <= 1) {
         chartDiv.innerHTML = '<p class="text-center py-10 text-slate-500">Não há dados suficientes para gerar o gráfico.</p>';
         return;
     }
-    
-    // CORREÇÃO: Usar a nova contagem de NF-e no tooltip e nos eixos do gráfico.
     const dataArray = [
-        ['Mês', 'Valor Devolvido (R$)', { role: 'annotation' }, 'Devoluções (NF-e)', { role: 'annotation' }]
+        ['Mês', 'Valor Devolvido (R$)', { role: 'annotation' }, 'Devoluções (NF-e)', { role: 'annotation' }, { role: 'tooltip', type: 'string', p: { html: true } }]
     ];
-
     chartData.slice(1).forEach(([mes, valor, quantidade]) => {
         const annotationValor = valor > 0 ? valor.toLocaleString('pt-BR', { notation: 'compact', compactDisplay: 'short' }) : '';
         const annotationQtd = quantidade > 0 ? quantidade.toString() : '';
-        dataArray.push([mes, valor, annotationValor, quantidade, annotationQtd]);
+        const valorFormatado = valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const tooltipHtml = `
+            <div style="padding:10px; font-family: Inter, sans-serif; font-size: 12px; min-width: 150px;">
+                <div style="font-weight: bold; margin-bottom: 5px;">${mes}</div>
+                <div style="display: flex; align-items: center; margin-top: 5px;"><span style="height: 10px; width: 10px; background-color: #00529e; border-radius: 50%; display: inline-block; margin-right: 8px;"></span><span><strong>${quantidade}</strong> Devoluções (NF-e)</span></div>
+                <div style="display: flex; align-items: center; margin-top: 5px;"><span style="height: 10px; width: 10px; background-color: #ff6000; border-radius: 50%; display: inline-block; margin-right: 8px;"></span><span><strong>${valorFormatado}</strong> Devolvidos</span></div>
+            </div>`;
+        dataArray.push([mes, valor, annotationValor, quantidade, annotationQtd, tooltipHtml]);
     });
-
     const dataTable = google.visualization.arrayToDataTable(dataArray);
-    const textStyle = { color: '#1e293b', fontName: 'Inter', fontSize: 12 };
-
+    const textStyle = { color: '#475569', fontName: 'Inter', fontSize: 12 };
     const options = {
         fontName: 'Inter',
-        legend: { position: 'top', maxLines: 3, textStyle: textStyle },
+        legend: { position: 'top', maxLines: 3, textStyle: { ...textStyle, color: '#1e293b'} },
         seriesType: 'bars',
         series: {
-            0: { type: 'line', color: '#FF6000', targetAxisIndex: 0, lineWidth: 3, pointSize: 6, pointShape: 'circle' },
-            1: { type: 'bars', color: '#00529e', targetAxisIndex: 1 }
+            0: { type: 'line', color: '#ff6000', targetAxisIndex: 0, lineWidth: 3, pointSize: 6, pointShape: 'circle', curveType: 'function',
+                annotations: { stem: { length: -15 }, textStyle: { color: '#ff6000', fontSize: 11, bold: true, auraColor: 'white' } }
+            },
+            1: { type: 'bars', color: '#00529e', targetAxisIndex: 1,
+                annotations: { textStyle: { fontSize: 11, color: '#1e293b', auraColor: 'white' } }
+            }
         },
         vAxes: {
-            0: { title: 'Valor Devolvido (R$)', format: 'short', textStyle: textStyle, titleTextStyle: { ...textStyle, bold: true, italic: false }, gridlines: { color: '#e2e8f0' }, viewWindow: { min: 0 } },
-            1: { title: 'Devoluções (NF-e)', gridlines: { color: 'transparent' }, textStyle: textStyle, titleTextStyle: { ...textStyle, bold: true, italic: false }, viewWindow: { min: 0 } }
+            0: { title: 'Valor Devolvido (R$)', format: 'short', textStyle: textStyle, titleTextStyle: { ...textStyle, color: '#1e293b', bold: true, italic: false }, gridlines: { color: '#e2e8f0' }, viewWindow: { min: 0 } },
+            1: { title: 'Devoluções (NF-e)', format: '0', gridlines: { color: 'transparent' }, textStyle: textStyle, titleTextStyle: { ...textStyle, color: '#1e293b', bold: true, italic: false }, viewWindow: { min: 0 } }
         },
-        hAxis: { textStyle: textStyle, titleTextStyle: { ...textStyle, bold: true, italic: false } },
-        chartArea: { left: 100, top: 60, width: '85%', height: '65%' },
-        bar: { groupWidth: '60%' },
-        focusTarget: 'category',
-        animation: { startup: false },
-        annotations: { alwaysOutside: true, textStyle: { fontName: 'Inter', fontSize: 11, color: '#1e293b', auraColor: '#ffffff' }, stem: { color: 'transparent' } }
+        hAxis: { textStyle: textStyle },
+        backgroundColor: { fill: 'transparent' },
+        chartArea: { left: 100, top: 60, width: '80%', height: '65%' },
+        bar: { groupWidth: '50%' },
+        tooltip: { isHtml: true },
+        animation: { startup: true, duration: 1000, easing: 'out' },
+        annotations: { alwaysOutside: true }
     };
-
     const chart = new google.visualization.ComboChart(chartDiv);
+    google.visualization.events.addListener(chart, 'ready', function () {
+        const legend = chartDiv.getElementsByTagName('text');
+        for (let i = 0; i < legend.length; i++) {
+            if (legend[i].textContent === 'Valor Devolvido (R$)') legend[i].setAttribute('fill', '#ff6000');
+            if (legend[i].textContent === 'Devoluções (NF-e)') legend[i].setAttribute('fill', '#00529e');
+        }
+    });
+    chart.draw(dataTable, options);
+}
+
+function drawDevolucoesDiariasChart(chartData) {
+    const chartDiv = document.getElementById('devolucoes-dia-chart');
+    if (!chartDiv) return;
+    if (!chartData || chartData.length <= 1) {
+        chartDiv.innerHTML = '<p class="text-center py-10 text-slate-500">Não há dados diários de devolução para o período.</p>';
+        return;
+    }
+    const dataArray = [ ['Dia', 'Devoluções (NF-e)', { role: 'annotation' }, { role: 'tooltip', type: 'string', p: { html: true } }] ];
+    chartData.slice(1).forEach(([day, value]) => {
+        const tooltipHtml = `<div style="padding:10px; font-family: Inter, sans-serif; font-size: 12px;"><div style="font-weight: bold; margin-bottom: 5px;">${day}</div><div><strong>${value}</strong> Devoluções (NF-e)</div></div>`;
+        dataArray.push([day, value, value.toString(), tooltipHtml]);
+    });
+    const dataTable = google.visualization.arrayToDataTable(dataArray);
+    const textStyle = { color: '#475569', fontName: 'Inter', fontSize: 12 };
+    const options = {
+        fontName: 'Inter', legend: { position: 'none' },
+        series: { 0: { color: '#ff6000', lineWidth: 3, pointSize: 7, pointShape: 'circle' } },
+        vAxis: { title: 'Devoluções (NF-e)', format: '0', textStyle: textStyle, titleTextStyle: { ...textStyle, color: '#1e293b', bold: true, italic: false }, gridlines: { color: '#e2e8f0', count: -1 }, viewWindow: { min: 0 } },
+        hAxis: { textStyle: textStyle, slantedText: chartData.length > 15, slantedTextAngle: 45 },
+        areaOpacity: 0.2, colors: ['#ff6000'], backgroundColor: { fill: 'transparent' },
+        chartArea: { left: 60, top: 40, width: '90%', height: '70%' },
+        curveType: 'function', animation: { startup: true, duration: 1000, easing: 'out' },
+        tooltip: { isHtml: true, trigger: 'focus' },
+        annotations: { textStyle: { fontName: 'Inter', fontSize: 12, bold: true, color: '#a15c07' }, stem: { color: 'transparent' }, alwaysOutside: false }
+    };
+    const chart = new google.visualization.AreaChart(chartDiv);
     chart.draw(dataTable, options);
 }
 
@@ -249,24 +303,13 @@ function renderDevolucaoDetalhadaPage() {
     const startIndex = (devolucaoCurrentPage - 1) * devolucaoRowsPerPage;
     const endIndex = startIndex + devolucaoRowsPerPage;
     const pageProdutos = allDevolucaoProdutos.slice(startIndex, endIndex);
-
-    const pageDetails = {
-        motivos: allDevolucaoMotivos,
-        produtos: pageProdutos
-    };
-
+    const pageDetails = { motivos: allDevolucaoMotivos, produtos: pageProdutos };
     renderDevolucaoDetalhadaTable(pageDetails);
-
     const pageInfo = document.getElementById('dev-detalhada-page-info');
     const prevBtn = document.getElementById('dev-detalhada-prev-page');
     const nextBtn = document.getElementById('dev-detalhada-next-page');
-
-    if (allDevolucaoProdutos.length > 0) {
-        pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allDevolucaoProdutos.length)} de ${allDevolucaoProdutos.length}`;
-    } else {
-        pageInfo.textContent = '';
-    }
-    
+    if (allDevolucaoProdutos.length > 0) pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allDevolucaoProdutos.length)} de ${allDevolucaoProdutos.length}`;
+    else pageInfo.textContent = '';
     prevBtn.disabled = devolucaoCurrentPage === 1;
     nextBtn.disabled = endIndex >= allDevolucaoProdutos.length;
 }
@@ -274,56 +317,144 @@ function renderDevolucaoDetalhadaPage() {
 function renderDevolucaoDetalhadaTable(detalhes) {
     const thead = document.getElementById('devolucao-detalhada-thead');
     const tbody = document.getElementById('devolucao-detalhada-tbody');
-
-    if (!thead || !tbody || !detalhes) {
-        if(tbody) tbody.innerHTML = '<tr><td colspan="99">Erro ao carregar dados detalhados.</td></tr>';
-        return;
-    }
-
-    thead.innerHTML = '';
-    tbody.innerHTML = '';
-
+    if (!thead || !tbody || !detalhes) { if(tbody) tbody.innerHTML = '<tr><td colspan="99">Erro ao carregar dados.</td></tr>'; return; }
+    thead.innerHTML = ''; tbody.innerHTML = '';
     if (!detalhes.produtos || detalhes.produtos.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-500">Nenhum item devolvido no período selecionado.</td></tr>';
-        thead.innerHTML = `
-            <tr>
-                <th class="p-3">CF</th>
-                <th class="p-3">Produto</th>
-                <th class="p-3">Total Retornado</th>
-            </tr>
-        `;
+        tbody.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-500">Nenhum item devolvido no período.</td></tr>';
+        thead.innerHTML = `<tr><th class="p-3">CF</th><th class="p-3">Produto</th><th class="p-3">Total Retornado</th></tr>`;
         return;
     }
-
     const cabecalhosMotivos = detalhes.motivos || [];
-    let headerHtml = '<tr>';
-    headerHtml += '<th class="p-3">CF</th>';
-    headerHtml += '<th class="p-3">Produto</th>';
-    headerHtml += '<th class="p-3 text-center">Total Retornado</th>';
-    cabecalhosMotivos.forEach(motivo => {
-        headerHtml += `<th class="p-3 text-center">${motivo}</th>`;
-    });
+    let headerHtml = '<tr><th class="p-3">CF</th><th class="p-3">Produto</th><th class="p-3 text-center">Total Retornado</th>';
+    cabecalhosMotivos.forEach(motivo => { headerHtml += `<th class="p-3 text-center">${motivo}</th>`; });
     headerHtml += '</tr>';
     thead.innerHTML = headerHtml;
-
     let bodyHtml = '';
     detalhes.produtos.forEach(produto => {
         const nomeProdutoCurto = produto.nome.length > 80 ? produto.nome.substring(0, 80) + '...' : produto.nome;
-
-        bodyHtml += `<tr class="border-b hover:bg-slate-50">`;
-        bodyHtml += `<td class="p-3 font-mono text-xs">${produto.cf}</td>`;
-        bodyHtml += `<td class="p-3" title="${produto.nome}">${nomeProdutoCurto}</td>`;
-        bodyHtml += `<td class="p-3 font-bold text-center">${produto.total}</td>`;
-
+        bodyHtml += `<tr class="border-b hover:bg-slate-50"><td class="p-3 font-mono text-xs">${produto.cf}</td><td class="p-3" title="${produto.nome}">${nomeProdutoCurto}</td><td class="p-3 font-bold text-center">${produto.total}</td>`;
         cabecalhosMotivos.forEach(motivo => {
             const contagem = produto.motivos[motivo] || 0;
             bodyHtml += `<td class="p-3 text-center">${contagem}</td>`;
         });
-
         bodyHtml += `</tr>`;
     });
-
     tbody.innerHTML = bodyHtml;
+}
+
+// --- Funções da Nova Tabela de Pedidos e Modal ---
+
+function renderPedidosDevolucaoPage() {
+    const tbody = document.getElementById('pedidos-devolucao-tbody');
+    const pageInfo = document.getElementById('pedidos-devolucao-page-info');
+    const prevBtn = document.getElementById('pedidos-devolucao-prev-page');
+    const nextBtn = document.getElementById('pedidos-devolucao-next-page');
+
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (allPedidosDevolucao.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-500">Nenhum pedido com devolução no período.</td></tr>';
+        pageInfo.textContent = '0 de 0';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+    }
+
+    const startIndex = (pedidosDevolucaoCurrentPage - 1) * pedidosDevolucaoRowsPerPage;
+    const endIndex = startIndex + pedidosDevolucaoRowsPerPage;
+    const pagePedidos = allPedidosDevolucao.slice(startIndex, endIndex);
+
+    let tableHtml = '';
+    pagePedidos.forEach(pedido => {
+        const valorFormatado = (pedido.totalValorDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        
+        tableHtml += `
+            <tr class="border-b hover:bg-slate-50">
+                <td class="p-3">${pedido.pedidoId}</td>
+                <td class="p-3">${pedido.dataNfe}</td>
+                <td class="p-3 truncate" title="${pedido.cliente}">${pedido.cliente}</td>
+                <td class="p-3 text-center">
+                    <span class="font-semibold text-blue-600 cursor-pointer hover:underline" onclick="openItensDevolvidosModal('${pedido.pedidoId}')">
+                        ${pedido.totalItensDevolvidos}
+                    </span>
+                </td>
+                <td class="p-3 font-semibold">${valorFormatado}</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = tableHtml;
+
+    pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allPedidosDevolucao.length)} de ${allPedidosDevolucao.length}`;
+    prevBtn.disabled = pedidosDevolucaoCurrentPage === 1;
+    nextBtn.disabled = endIndex >= allPedidosDevolucao.length;
+}
+
+function openItensDevolvidosModal(pedidoId) {
+    const modal = document.getElementById('itens-modal');
+    const modalContent = document.getElementById('itens-modal-content');
+    document.getElementById('itens-modal-title').textContent = `Itens Devolvidos do Pedido ${pedidoId}`;
+    
+    const listContainer = document.getElementById('itens-modal-list');
+    const totalValueEl = document.getElementById('itens-modal-total');
+    
+    // Mostra o estado de carregamento
+    listContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Carregando itens...</td></tr>';
+    totalValueEl.textContent = 'Calculando...';
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalContent.classList.remove('scale-95');
+    }, 10);
+
+    // Chama o backend para buscar os dados dos itens
+    google.script.run
+        .withSuccessHandler(function(items) {
+            if (items.error) {
+                 listContainer.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">Erro: ${items.error}</td></tr>`;
+                 return;
+            }
+            
+            listContainer.innerHTML = '';
+            let totalValue = 0;
+
+            if (!items || items.length === 0) {
+                listContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Nenhum item encontrado.</td></tr>';
+            } else {
+                items.forEach(item => {
+                    const valorFormatado = (item.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                    totalValue += item.valor || 0;
+                    const itemHtml = `
+                        <tr class="border-b">
+                            <td class="p-2 align-top font-mono text-xs">${item.cf}</td>
+                            <td class="p-2 align-top">${item.descricao}</td>
+                            <td class="p-2 align-top text-center">${item.quantidade}</td>
+                            <td class="p-2 align-top text-right">${valorFormatado}</td>
+                        </tr>
+                    `;
+                    listContainer.innerHTML += itemHtml;
+                });
+            }
+            totalValueEl.textContent = totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        })
+        .withFailureHandler(function(error) {
+            listContainer.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-red-500">Falha ao buscar itens: ${error.message}</td></tr>`;
+        })
+        .getItensDevolvidosPorPedidoWithCache(pedidoId);
+}
+
+
+function closeItensDevolvidosModal() {
+    const modal = document.getElementById('itens-modal');
+    const modalContent = document.getElementById('itens-modal-content');
+    modal.classList.add('opacity-0');
+    modalContent.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 300);
 }
 
 </script>
