@@ -43,14 +43,21 @@
             </div>
         </section>
 
-        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-             <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Devoluções por Mês</h3>
-                <div id="devolucoes-mes-chart" style="width: 100%; height: 400px;"></div>
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Evolução Mensal de Devoluções (Ano)</h3>
+                <div id="devolucoes-mes-chart" style="width: 100%; height: 350px;"></div>
             </div>
-             <div class="bg-white p-6 rounded-xl shadow-sm">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4">Motivos</h3>
-                 <div id="top-motivos-container" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">NFD Devolvida por Dia (Período)</h3>
+                 <div id="devolucoes-dia-chart" style="width: 100%; height: 350px;"></div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+             <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top Motivos de Devolução</h3>
+                 <div id="top-motivos-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <!-- Cards de motivos serão gerados aqui -->
                 </div>
             </div>
@@ -66,25 +73,83 @@
                 <div id="top-fabricantes-container" class="space-y-3"></div>
             </div>
         </section>
-
-        <section class="bg-white p-6 rounded-xl shadow-sm">
-            <h3 class="text-lg font-semibold text-slate-800 mb-4">Itens Devolvidos por Motivo</h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm text-left">
-                    <thead id="devolucao-detalhada-thead" class="bg-slate-50 text-slate-600 uppercase">
-                    </thead>
-                    <tbody id="devolucao-detalhada-tbody" class="text-slate-700">
-                    </tbody>
-                </table>
+        
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Itens Devolvidos por Motivo</h3>
+                <div class="overflow-x-auto table-wrapper">
+                    <table class="w-full text-sm text-left">
+                        <thead id="devolucao-detalhada-thead" class="bg-slate-50 text-slate-600 uppercase sticky top-0">
+                        </thead>
+                        <tbody id="devolucao-detalhada-tbody" class="text-slate-700">
+                        </tbody>
+                    </table>
+                </div>
+                 <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+                    <span id="dev-detalhada-page-info"></span>
+                    <div class="ml-4">
+                        <button id="dev-detalhada-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                        <button id="dev-detalhada-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+                    </div>
+                </div>
             </div>
-             <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
-                <span id="dev-detalhada-page-info"></span>
-                <div class="ml-4">
-                    <button id="dev-detalhada-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
-                    <button id="dev-detalhada-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Pedidos com Devolução</h3>
+                <div class="overflow-x-auto table-wrapper">
+                    <table class="w-full text-sm text-left">
+                        <thead id="pedidos-devolucao-thead" class="bg-slate-50 text-slate-600 uppercase sticky top-0">
+                           <tr>
+                                <th class="p-3">Pedido</th>
+                                <th class="p-3">Data NFE</th>
+                                <th class="p-3">Cliente</th>
+                                <th class="p-3 text-center">Itens Dev.</th>
+                                <th class="p-3">Valor Dev.</th>
+                           </tr>
+                        </thead>
+                        <tbody id="pedidos-devolucao-tbody" class="text-slate-700">
+                        </tbody>
+                    </table>
+                </div>
+                 <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+                    <span id="pedidos-devolucao-page-info"></span>
+                    <div class="ml-4">
+                        <button id="pedidos-devolucao-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                        <button id="pedidos-devolucao-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+                    </div>
                 </div>
             </div>
         </section>
+    </div>
+</div>
+
+<!-- MODAL PARA ITENS DEVOLVIDOS -->
+<div id="itens-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[70] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300" onclick="closeItensDevolvidosModal()">
+    <div id="itens-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center p-4 border-b bg-white rounded-t-xl flex-shrink-0">
+            <h2 id="itens-modal-title" class="text-xl font-semibold text-slate-800">Itens Devolvidos do Pedido</h2>
+            <button onclick="closeItensDevolvidosModal()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+        </div>
+        <div class="p-6 overflow-y-auto flex-grow">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                     <thead class="bg-slate-200 text-slate-600 uppercase">
+                        <tr>
+                            <th class="p-2 text-left">CF</th>
+                            <th class="p-2 text-left">Descrição do Produto</th>
+                            <th class="p-2 text-center">Qtd</th>
+                            <th class="p-2 text-right">Valor</th>
+                        </tr>
+                     </thead>
+                     <tbody id="itens-modal-list" class="bg-white">
+                         <!-- Itens serão injetados aqui via JS -->
+                     </tbody>
+                </table>
+            </div>
+        </div>
+        <div id="itens-modal-footer" class="p-4 bg-white rounded-b-xl border-t flex justify-end items-center flex-shrink-0">
+            <span class="text-sm font-medium text-slate-600 mr-2">Valor Total Devolvido:</span>
+            <span id="itens-modal-total" class="text-lg font-bold text-slate-800">R$ 0,00</span>
+        </div>
     </div>
 </div>
 
