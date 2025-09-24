@@ -6,6 +6,8 @@
  * Busca e processa todos os dados necessários para os KPIs e gráficos do dashboard de devolução.
  * MODIFICADO: Lógica de contagem refeita para usar a coluna NFE_NUMERO (C) como chave primária,
  * garantindo a contagem correta de devoluções únicas.
+ * MODIFICADO 2: Adicionada a agregação de dados para o gráfico de NFD por dia.
+ * MODIFICADO 3: Gráfico mensal agora exibe dados apenas até o mês atual.
  */
 function getDevolucaoData(dateRange) {
   try {
@@ -32,7 +34,9 @@ function getDevolucaoData(dateRange) {
     };
     
     // 1. Processa dados do ano inteiro para o gráfico de evolução mensal
-    const anoCorrente = new Date().getFullYear();
+    const hoje = new Date();
+    const anoCorrente = hoje.getFullYear();
+    const mesCorrente = hoje.getMonth();
     const devolucoesPorMes = {};
     const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
     const nfsUnicasPorMes = {};
@@ -61,7 +65,8 @@ function getDevolucaoData(dateRange) {
     });
 
     const chartData = [['Mês', 'Valor Devolvido (R$)', 'Devoluções (NF-e)']];
-    for(let i=0; i<12; i++) {
+    // Modificado para ir apenas até o mês atual
+    for(let i=0; i <= mesCorrente; i++) {
         const key = `${anoCorrente}-${String(i).padStart(2, '0')}`;
         const monthLabel = `${monthNames[i]}/${String(anoCorrente).slice(-2)}`;
         const valor = devolucoesPorMes[key] ? devolucoesPorMes[key].valor : 0;
@@ -187,6 +192,32 @@ function getDevolucaoData(dateRange) {
     const topCategorias = Object.entries(categorias).sort(([,a],[,b]) => b-a).slice(0, 10);
     const topFabricantes = Object.entries(fabricantes).sort(([,a],[,b]) => b-a).slice(0, 10);
 
+    // 6. Processa dados para o gráfico de devoluções diárias
+    const devolucoesPorDia = {};
+    dadosFiltrados.forEach(linha => {
+        const dataNfe = linha[INDICES.DATA_NFE];
+        if (dataNfe instanceof Date) {
+            const dataFormatada = Utilities.formatDate(dataNfe, "GMT-3", "yyyy-MM-dd");
+            const nfUnica = linha[INDICES.NFE_NUMERO] ? String(linha[INDICES.NFE_NUMERO]).trim() : null;
+            
+            if (!devolucoesPorDia[dataFormatada]) {
+                devolucoesPorDia[dataFormatada] = new Set();
+            }
+            
+            if (nfUnica) {
+                devolucoesPorDia[dataFormatada].add(nfUnica);
+            }
+        }
+    });
+
+    const dailyChartData = [['Dia', 'Devoluções (NF-e)']];
+    const sortedDays = Object.keys(devolucoesPorDia).sort();
+    sortedDays.forEach(day => {
+        const [year, month, dayOfMonth] = day.split('-');
+        const formattedDay = `${dayOfMonth}/${month}`;
+        dailyChartData.push([formattedDay, devolucoesPorDia[day].size]);
+    });
+
     return {
       kpis: {
         totalDevolvido: totalDevolvido,
@@ -198,6 +229,7 @@ function getDevolucaoData(dateRange) {
       topCategorias: topCategorias,
       topFabricantes: topFabricantes,
       devolucoesPorMes: chartData,
+      devolucoesPorDia: dailyChartData,
       tabelaDetalhada: {
         motivos: Array.from(todosMotivos).sort(),
         produtos: Object.values(tabelaDetalhada).sort((a,b) => b.total - a.total)
@@ -213,6 +245,7 @@ function getDevolucaoData(dateRange) {
 // --- VERSÃO COM CACHE PARA SER CHAMADA PELO CLIENTE ---
 function getDevolucaoDataWithCache(dateRange) {
   // Versão do cache incrementada para invalidar dados antigos após a mudança de lógica
-  const cacheKey = `devolucao_data_v8_${dateRange.start}_${dateRange.end}`;
+  const cacheKey = `devolucao_data_v10_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDevolucaoData, [dateRange]);
 }
+
