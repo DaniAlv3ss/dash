@@ -4,10 +4,7 @@
 
 /**
  * Busca e processa todos os dados necessários para os KPIs e gráficos do dashboard de devolução.
- * MODIFICADO: Lógica de contagem refeita para usar a coluna NFE_NUMERO (C) como chave primária,
- * garantindo a contagem correta de devoluções únicas.
- * MODIFICADO 2: Adicionada a agregação de dados para o gráfico de NFD por dia.
- * MODIFICADO 3: Gráfico mensal agora exibe dados apenas até o mês atual.
+ * MODIFICADO: Adicionada agregação de dados para a "Tabela de Pedidos com Devolução".
  */
 function getDevolucaoData(dateRange) {
   try {
@@ -21,6 +18,7 @@ function getDevolucaoData(dateRange) {
 
     const INDICES = {
       PEDIDO_ID: 0,       // Coluna A
+      CLIENTE: 1,         // Coluna B
       NFE_NUMERO: 2,      // Coluna C
       DATA_NFE: 3,        // Coluna D
       CF_PRODUTO: 9,      // Coluna J
@@ -30,7 +28,6 @@ function getDevolucaoData(dateRange) {
       VALOR_DEVOLUCAO: 24,// Coluna Y
       MOTIVO: 26,         // Coluna AA
       FABRICANTE: 28,     // Coluna AC
-      PEDIDO_NFD_UNICO: 38 // Coluna AM (Não utilizado para contagem de NFs)
     };
     
     // 1. Processa dados do ano inteiro para o gráfico de evolução mensal
@@ -65,7 +62,6 @@ function getDevolucaoData(dateRange) {
     });
 
     const chartData = [['Mês', 'Valor Devolvido (R$)', 'Devoluções (NF-e)']];
-    // Modificado para ir apenas até o mês atual
     for(let i=0; i <= mesCorrente; i++) {
         const key = `${anoCorrente}-${String(i).padStart(2, '0')}`;
         const monthLabel = `${monthNames[i]}/${String(anoCorrente).slice(-2)}`;
@@ -83,8 +79,8 @@ function getDevolucaoData(dateRange) {
     });
 
     // 3. Calcula dados para o período anterior (para o indicador de tendência)
-    const startDate = new Date(dateRange.start.replace(/-/g, '/'));
-    const endDate = new Date(dateRange.end.replace(/-/g, '/'));
+    const startDate = new Date(dateRange.start + 'T05:00:00Z');
+    const endDate = new Date(dateRange.end + 'T05:00:00Z');
     const duration = endDate.getTime() - startDate.getTime();
     const previousEndDate = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
     const previousStartDate = new Date(previousEndDate.getTime() - duration);
@@ -97,7 +93,70 @@ function getDevolucaoData(dateRange) {
       const dataFormatada = Utilities.formatDate(dataNfe, "GMT-3", "yyyy-MM-dd");
       return dataFormatada >= previousStartStr && dataFormatada <= previousEndStr;
     });
+    
+    // 4. Processa os dados filtrados para KPIs, listas de Top 10 e tabelas
+    let totalDevolvido = 0, valorCancelamento = 0, totalItensDevolvidos = 0;
+    const nfsUnicas = new Set();
+    const categorias = {}, fabricantes = {};
+    const tabelaDetalhada = {}, todosMotivos = new Set();
+    const pedidosComDevolucao = {};
 
+    const motivos = {}; // Estrutura: { motivo: { nfs: Set(), valor: 0 } }
+    dadosFiltrados.forEach(linha => {
+      const qtdDevolvida = parseInt(linha[INDICES.QTD_DEVOLVIDA], 10) || 0;
+      if (qtdDevolvida === 0) return;
+
+      const motivo = (linha[INDICES.MOTIVO] || "Não especificado").trim().toLowerCase();
+      const valorRaw = linha[INDICES.VALOR_DEVOLUCAO];
+      const valor = (typeof valorRaw === 'number') ? valorRaw : (parseFloat(String(valorRaw).replace(/[R$\s.]/g, '').replace(',', '.')) || 0);
+      const rawNf = linha[INDICES.NFE_NUMERO];
+      const nfUnica = (rawNf !== null && rawNf !== undefined && rawNf !== '') ? String(rawNf).trim() : null;
+
+      if (!motivos[motivo]) {
+        motivos[motivo] = { nfs: new Set(), valor: 0 };
+      }
+      if (nfUnica) {
+        motivos[motivo].nfs.add(nfUnica);
+      }
+      motivos[motivo].valor += valor;
+
+      totalDevolvido += valor;
+      if (motivo.includes("cancelamento")) valorCancelamento += valor;
+      if(nfUnica) nfsUnicas.add(nfUnica);
+      totalItensDevolvidos += qtdDevolvida;
+
+      const fabricante = (linha[INDICES.FABRICANTE] || "Não especificado").trim();
+      const categoriaBudget = (linha[INDICES.CATEGORIA_BUDGET] || "Não especificado").trim();
+      categorias[categoriaBudget] = (categorias[categoriaBudget] || 0) + qtdDevolvida;
+      fabricantes[fabricante] = (fabricantes[fabricante] || 0) + qtdDevolvida;
+      
+      const displayMotivo = motivo.charAt(0).toUpperCase() + motivo.slice(1);
+      todosMotivos.add(displayMotivo);
+
+      const cfProduto = linha[INDICES.CF_PRODUTO] || 'N/A';
+      const produtoNome = (linha[INDICES.PRODUTO] || "Não especificado").trim(); 
+      const produtoKey = `${cfProduto}|${produtoNome}`;
+      if(!tabelaDetalhada[produtoKey]) tabelaDetalhada[produtoKey] = { cf: cfProduto, nome: produtoNome, total: 0, motivos: {} };
+      tabelaDetalhada[produtoKey].total += qtdDevolvida;
+      tabelaDetalhada[produtoKey].motivos[displayMotivo] = (tabelaDetalhada[produtoKey].motivos[displayMotivo] || 0) + qtdDevolvida;
+      
+      const pedidoId = linha[INDICES.PEDIDO_ID] ? String(linha[INDICES.PEDIDO_ID]).trim() : null;
+      if (pedidoId) {
+        if (!pedidosComDevolucao[pedidoId]) {
+          const dataNfe = linha[INDICES.DATA_NFE];
+          pedidosComDevolucao[pedidoId] = {
+            pedidoId: pedidoId,
+            dataNfe: dataNfe instanceof Date ? Utilities.formatDate(dataNfe, "GMT-3", "dd/MM/yyyy") : 'N/A',
+            cliente: linha[INDICES.CLIENTE] || "Não especificado",
+            totalItensDevolvidos: 0,
+            totalValorDevolvido: 0
+          };
+        }
+        pedidosComDevolucao[pedidoId].totalItensDevolvidos += qtdDevolvida;
+        pedidosComDevolucao[pedidoId].totalValorDevolvido += valor;
+      }
+    });
+    
     const motivosAnteriores = {};
     dadosPeriodoAnterior.forEach(linha => {
         const qtdDevolvidaAnterior = parseInt(linha[INDICES.QTD_DEVOLVIDA], 10) || 0;
@@ -114,138 +173,158 @@ function getDevolucaoData(dateRange) {
             }
         }
     });
-    
-    // 4. Processa os dados filtrados para KPIs, listas de Top 10 e tabelas
-    let totalDevolvido = 0;
-    let valorCancelamento = 0;
-    const nfsUnicas = new Set();
-    const motivos = {}; // Estrutura: { motivo: { nfs: Set(), valor: 0 } }
-    const categorias = {};
-    const fabricantes = {};
-    let totalItensDevolvidos = 0;
-    const tabelaDetalhada = {};
-    const todosMotivos = new Set();
 
-    dadosFiltrados.forEach(linha => {
-      const qtdDevolvida = parseInt(linha[INDICES.QTD_DEVOLVIDA], 10) || 0;
-      if (qtdDevolvida === 0) return; // Pula a linha se nenhum item foi devolvido
-
-      const motivo = (linha[INDICES.MOTIVO] || "Não especificado").trim().toLowerCase();
-      const valorRaw = linha[INDICES.VALOR_DEVOLUCAO];
-      const valor = (typeof valorRaw === 'number') ? valorRaw : (parseFloat(String(valorRaw).replace(/[R$\s.]/g, '').replace(',', '.')) || 0);
-      
-      const rawNf = linha[INDICES.NFE_NUMERO];
-      const nfUnica = (rawNf !== null && rawNf !== undefined && rawNf !== '') ? String(rawNf).trim() : null;
-
-      // --- Cálculos de KPIs ---
-      totalDevolvido += valor;
-      if (motivo.includes("cancelamento")) {
-          valorCancelamento += valor;
-      }
-      if(nfUnica) {
-        nfsUnicas.add(nfUnica);
-      }
-      totalItensDevolvidos += qtdDevolvida;
-
-      // --- Agregação para Top Motivos (por NF-e) ---
-      if (!motivos[motivo]) {
-        motivos[motivo] = { nfs: new Set(), valor: 0 };
-      }
-      if (nfUnica) {
-        motivos[motivo].nfs.add(nfUnica);
-      }
-      motivos[motivo].valor += valor;
-
-      // --- Agregação para Top Categorias e Fabricantes (por item) ---
-      const fabricante = (linha[INDICES.FABRICANTE] || "Não especificado").trim();
-      const categoriaBudget = (linha[INDICES.CATEGORIA_BUDGET] || "Não especificado").trim();
-      
-      categorias[categoriaBudget] = (categorias[categoriaBudget] || 0) + qtdDevolvida;
-      fabricantes[fabricante] = (fabricantes[fabricante] || 0) + qtdDevolvida;
-      
-      // --- Agregação para a tabela detalhada de produtos ---
-      const displayMotivo = motivo.charAt(0).toUpperCase() + motivo.slice(1);
-      todosMotivos.add(displayMotivo);
-
-      const cfProduto = linha[INDICES.CF_PRODUTO] || 'N/A';
-      const produtoNome = (linha[INDICES.PRODUTO] || "Não especificado").trim(); 
-      const produtoKey = `${cfProduto}|${produtoNome}`;
-      if(!tabelaDetalhada[produtoKey]){
-        tabelaDetalhada[produtoKey] = { cf: cfProduto, nome: produtoNome, total: 0, motivos: {} };
-      }
-      tabelaDetalhada[produtoKey].total += qtdDevolvida;
-      tabelaDetalhada[produtoKey].motivos[displayMotivo] = (tabelaDetalhada[produtoKey].motivos[displayMotivo] || 0) + qtdDevolvida;
-    });
-    
-    // 5. Formata os dados agregados para o front-end
-    const topMotivos = Object.entries(motivos)
-        .map(([motivo, data]) => {
-            const displayMotivo = motivo.charAt(0).toUpperCase() + motivo.slice(1);
-            const quantidade = data.nfs.size;
-            const valor = data.valor;
-            const quantidadeAnterior = motivosAnteriores[motivo] ? motivosAnteriores[motivo].size : 0;
-            return [displayMotivo, { quantidade, valor, quantidadeAnterior }];
-        })
-        .sort(([, a], [, b]) => b.quantidade - a.quantidade)
-        .slice(0, 4);
+    const topMotivos = Object.entries(motivos).map(([motivo, data]) => {
+        const displayMotivo = motivo.charAt(0).toUpperCase() + motivo.slice(1);
+        const quantidadeAnterior = motivosAnteriores[motivo] ? motivosAnteriores[motivo].size : 0;
+        return [displayMotivo, { quantidade: data.nfs.size, valor: data.valor, quantidadeAnterior: quantidadeAnterior }];
+    }).sort(([, a], [, b]) => b.quantidade - a.quantidade).slice(0, 4);
 
     const topCategorias = Object.entries(categorias).sort(([,a],[,b]) => b-a).slice(0, 10);
     const topFabricantes = Object.entries(fabricantes).sort(([,a],[,b]) => b-a).slice(0, 10);
+    
+    const tabelaPedidos = Object.values(pedidosComDevolucao).sort((a, b) => {
+      try {
+        const [dayA, monthA, yearA] = a.dataNfe.split('/');
+        const [dayB, monthB, yearB] = b.dataNfe.split('/');
+        return new Date(`${yearB}-${monthB}-${dayB}`) - new Date(`${yearA}-${monthA}-${dayA}`);
+      } catch(e) { return 0; }
+    });
 
-    // 6. Processa dados para o gráfico de devoluções diárias
     const devolucoesPorDia = {};
     dadosFiltrados.forEach(linha => {
         const dataNfe = linha[INDICES.DATA_NFE];
         if (dataNfe instanceof Date) {
             const dataFormatada = Utilities.formatDate(dataNfe, "GMT-3", "yyyy-MM-dd");
             const nfUnica = linha[INDICES.NFE_NUMERO] ? String(linha[INDICES.NFE_NUMERO]).trim() : null;
-            
-            if (!devolucoesPorDia[dataFormatada]) {
-                devolucoesPorDia[dataFormatada] = new Set();
-            }
-            
-            if (nfUnica) {
-                devolucoesPorDia[dataFormatada].add(nfUnica);
-            }
+            if (!devolucoesPorDia[dataFormatada]) devolucoesPorDia[dataFormatada] = new Set();
+            if (nfUnica) devolucoesPorDia[dataFormatada].add(nfUnica);
         }
     });
-
-    const dailyChartData = [['Dia', 'Devoluções (NF-e)']];
-    const sortedDays = Object.keys(devolucoesPorDia).sort();
-    sortedDays.forEach(day => {
-        const [year, month, dayOfMonth] = day.split('-');
-        const formattedDay = `${dayOfMonth}/${month}`;
-        dailyChartData.push([formattedDay, devolucoesPorDia[day].size]);
-    });
+    const dailyChartData = [['Dia', 'Devoluções (NF-e)'], ...Object.keys(devolucoesPorDia).sort().map(day => {
+        const [,, dayOfMonth] = day.split('-'); return [`${dayOfMonth}/${day.substring(5,7)}`, devolucoesPorDia[day].size];
+    })];
 
     return {
-      kpis: {
-        totalDevolvido: totalDevolvido,
-        valorCancelamento: valorCancelamento,
-        devolucoesUnicas: nfsUnicas.size,
-        totalItensDevolvidos: totalItensDevolvidos
-      },
-      topMotivos: topMotivos,
-      topCategorias: topCategorias,
-      topFabricantes: topFabricantes,
+      kpis: { totalDevolvido, valorCancelamento, devolucoesUnicas: nfsUnicas.size, totalItensDevolvidos },
+      topMotivos, topCategorias, topFabricantes,
       devolucoesPorMes: chartData,
       devolucoesPorDia: dailyChartData,
-      tabelaDetalhada: {
-        motivos: Array.from(todosMotivos).sort(),
-        produtos: Object.values(tabelaDetalhada).sort((a,b) => b.total - a.total)
-      }
+      tabelaDetalhada: { motivos: Array.from(todosMotivos).sort(), produtos: Object.values(tabelaDetalhada).sort((a,b) => b.total - a.total) },
+      tabelaPedidos: tabelaPedidos
     };
-
   } catch (e) {
     Logger.log(`Erro em getDevolucaoData: ${e.stack}`);
     return { error: e.message };
   }
 }
 
-// --- VERSÃO COM CACHE PARA SER CHAMADA PELO CLIENTE ---
+/**
+ * Busca os itens específicos devolvidos para um determinado número de pedido.
+ * @param {string} pedidoId O ID do pedido a ser consultado.
+ * @returns {Array<Object>} Uma lista de itens devolvidos com seus detalhes.
+ */
+function getItensDevolvidosPorPedido(pedidoId) {
+  if (!pedidoId) return { error: "ID do Pedido não fornecido." };
+  try {
+    const planilha = SpreadsheetApp.openById(ID_PLANILHA_DEVOLUCAO);
+    const abaDevolucao = planilha.getSheetByName(NOME_ABA_DEVOLUCAO);
+    if (!abaDevolucao) throw new Error("Aba 'Base Devolução' não foi encontrada.");
+    const todosDados = abaDevolucao.getRange(2, 1, abaDevolucao.getLastRow() - 1, abaDevolucao.getLastColumn()).getValues();
+
+    const INDICES = { PEDIDO_ID: 0, CF_PRODUTO: 9, PRODUTO: 10, QTD_DEVOLVIDA: 17, VALOR_DEVOLUCAO: 24 };
+
+    return todosDados
+      .filter(linha => String(linha[INDICES.PEDIDO_ID]).trim() === String(pedidoId).trim() && (parseInt(linha[INDICES.QTD_DEVOLVIDA], 10) || 0) > 0)
+      .map(linha => {
+        const valorRaw = linha[INDICES.VALOR_DEVOLUCAO];
+        const valor = (typeof valorRaw === 'number') ? valorRaw : (parseFloat(String(valorRaw).replace(/[R$\s.]/g, '').replace(',', '.')) || 0);
+        return {
+          cf: linha[INDICES.CF_PRODUTO] || 'N/A',
+          descricao: linha[INDICES.PRODUTO] || 'Descrição indisponível',
+          quantidade: parseInt(linha[INDICES.QTD_DEVOLVIDA], 10) || 0,
+          valor: valor
+        };
+      });
+  } catch (e) {
+    Logger.log(`Erro em getItensDevolvidosPorPedido para o pedido ${pedidoId}: ${e.stack}`);
+    return { error: `Erro ao buscar detalhes do pedido: ${e.message}` };
+  }
+}
+
+
+/**
+ * NOVA FUNÇÃO: Busca dados detalhados de devolução para exportação em CSV.
+ * Retorna uma lista não agregada de itens devolvidos no período.
+ */
+function getDevolucaoExportData(dateRange) {
+  try {
+    const planilha = SpreadsheetApp.openById(ID_PLANILHA_DEVOLUCAO);
+    const abaDevolucao = planilha.getSheetByName(NOME_ABA_DEVOLUCAO);
+    if (!abaDevolucao) {
+      throw new Error("Aba 'Base Devolução' não foi encontrada na planilha.");
+    }
+
+    const todosDados = abaDevolucao.getRange(2, 1, abaDevolucao.getLastRow() - 1, abaDevolucao.getLastColumn()).getValues();
+
+    const INDICES = {
+      PEDIDO_ID: 0,
+      CLIENTE: 1,
+      NFE_NUMERO: 2,
+      DATA_NFE: 3,
+      PRODUTO: 10,
+      QTD_DEVOLVIDA: 17,
+      VALOR_DEVOLUCAO: 24,
+      MOTIVO: 26,
+    };
+
+    const dadosFiltrados = todosDados.filter(linha => {
+      const dataNfe = linha[INDICES.DATA_NFE];
+      if (!dataNfe || !(dataNfe instanceof Date)) return false;
+      const dataFormatada = Utilities.formatDate(dataNfe, "GMT-3", "yyyy-MM-dd");
+      return dataFormatada >= dateRange.start && dataFormatada <= dateRange.end;
+    });
+
+    const exportData = dadosFiltrados.map(linha => {
+      const dataNfe = linha[INDICES.DATA_NFE];
+      const valorRaw = linha[INDICES.VALOR_DEVOLUCAO];
+      const valor = (typeof valorRaw === 'number') ? valorRaw : (parseFloat(String(valorRaw).replace(/[R$\s.]/g, '').replace(',', '.')) || 0);
+
+      return [
+        dataNfe instanceof Date ? Utilities.formatDate(dataNfe, "GMT-3", "dd/MM/yyyy") : 'N/A', // Data NFE
+        linha[INDICES.NFE_NUMERO] || '', // NFe_Numero
+        linha[INDICES.PEDIDO_ID] || '', // Pedido
+        linha[INDICES.CLIENTE] || '', // Cliente
+        linha[INDICES.PRODUTO] || '', // Produto
+        linha[INDICES.QTD_DEVOLVIDA] || 0, // Qtd Devolvida
+        valor, // Valor Devolução
+        (linha[INDICES.MOTIVO] || "Não especificado").trim() // Motivo
+      ];
+    });
+
+    return exportData;
+
+  } catch (e) {
+    Logger.log(`Erro em getDevolucaoExportData: ${e.stack}`);
+    return { error: e.message };
+  }
+}
+
+// --- VERSÕES COM CACHE PARA SEREM CHAMADAS PELO CLIENTE ---
 function getDevolucaoDataWithCache(dateRange) {
-  // Versão do cache incrementada para invalidar dados antigos após a mudança de lógica
-  const cacheKey = `devolucao_data_v10_${dateRange.start}_${dateRange.end}`;
+  const cacheKey = `devolucao_data_v13_period_fix_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDevolucaoData, [dateRange]);
+}
+
+function getItensDevolvidosPorPedidoWithCache(pedidoId) {
+  const cacheKey = `devolucao_itens_pedido_v2_${pedidoId}`;
+  return getOrSetCache(cacheKey, getItensDevolvidosPorPedido, [pedidoId], 300); // cache de 5 minutos
+}
+
+function getDevolucaoExportDataWithCache(dateRange) {
+  // REMOVIDO: Cache para a função de exportação para evitar o erro "Argumento grande demais".
+  // A exportação sempre buscará os dados mais recentes diretamente.
+  Logger.log(`Buscando dados de exportação (sem cache) para o período ${dateRange.start} a ${dateRange.end}`);
+  return getDevolucaoExportData(dateRange);
 }
 
