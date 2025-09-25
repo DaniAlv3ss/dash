@@ -23,10 +23,11 @@ function initializeDevolucaoPage() {
             document.getElementById('dev-endDate').value = today.toISOString().split('T')[0];
             document.getElementById('dev-startDate').value = firstDayMonth.toISOString().split('T')[0];
             
-            // Listeners do filtro de data
+            // Listeners do filtro de data e exportação
             document.getElementById('dev-applyButton').addEventListener('click', applyDevolucaoDateFilter);
             document.getElementById('dev-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
             document.getElementById('dev-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
+            document.getElementById('export-devolucao-motivos-btn').addEventListener('click', exportDevolucaoMotivosData);
             updateDevolucaoDateRangeDisplay();
             
             // Listeners da paginação da tabela de produtos
@@ -151,10 +152,14 @@ function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
         return;
     }
 
+    const maxCount = motivosData.length > 0 ? motivosData[0][1].quantidade : 0;
+
     motivosData.forEach(([motivo, data]) => {
         const { quantidade, valor, quantidadeAnterior } = data;
-        const percentage = (quantidade / totalDevolucoes) * 100;
+        const percentageOfTotal = totalDevolucoes > 0 ? (quantidade / totalDevolucoes) * 100 : 0;
+        const proportionalWidth = maxCount > 0 ? (quantidade / maxCount) * 100 : 0;
         const valorFormatado = (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        
         let trendIndicatorHtml = '';
         const diff = quantidade - quantidadeAnterior;
 
@@ -167,17 +172,20 @@ function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
         }
 
         const cardHtml = `
-            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col h-full">
                 <h4 class="font-semibold text-slate-800 truncate text-sm" title="${motivo}">${motivo}</h4>
-                <div class="mt-2 pt-2 border-t border-slate-200">
+                <div class="mt-2 pt-2 border-t border-slate-200 flex-grow">
                     <div class="flex justify-between items-baseline">
                         <span class="text-2xl font-bold text-orange-600">${quantidade}</span>
                         <div class="flex items-center gap-2">
                            ${trendIndicatorHtml}
-                           <span class="text-sm font-semibold text-slate-500">${percentage.toFixed(1)}%</span>
+                           <span class="text-sm font-semibold text-slate-500">${percentageOfTotal.toFixed(1)}%</span>
                         </div>
                     </div>
                     <p class="text-xs text-slate-500 text-left mt-1">Valor: ${valorFormatado}</p>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                    <div class="bg-orange-500 h-1.5 rounded-full" style="width: ${proportionalWidth}%"></div>
                 </div>
             </div>`;
         container.innerHTML += cardHtml;
@@ -455,6 +463,95 @@ function closeItensDevolvidosModal() {
         modal.classList.add('hidden');
         modal.classList.remove('flex');
     }, 300);
+}
+
+// REFEITA: Função para exportar os dados detalhados de devoluções com motivos.
+function exportDevolucaoMotivosData() {
+    const button = document.getElementById('export-devolucao-motivos-btn');
+    const originalText = button.innerHTML;
+    button.innerHTML = `
+        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>Exportando...</span>`;
+    button.disabled = true;
+
+    const dateRange = {
+        start: document.getElementById('dev-startDate').value,
+        end: document.getElementById('dev-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(function(exportData) {
+            if (exportData.error) {
+                alert('Erro ao exportar dados: ' + exportData.error);
+                button.innerHTML = originalText;
+                button.disabled = false;
+                return;
+            }
+
+            if (!exportData || exportData.length === 0) {
+                alert('Não há dados para exportar no período selecionado.');
+                button.innerHTML = originalText;
+                button.disabled = false;
+                return;
+            }
+
+            const headers = ['Data NFE', 'NFe Numero', 'Pedido', 'Cliente', 'Produto', 'Qtd Devolvida', 'Valor Devolucao', 'Motivo'];
+            const csvRows = [headers, ...exportData];
+            
+            const startDate = document.getElementById('dev-startDate').value;
+            const endDate = document.getElementById('dev-endDate').value;
+
+            exportToCsv(`devolucoes_detalhadas_${startDate}_a_${endDate}.csv`, csvRows);
+            
+            button.innerHTML = originalText;
+            button.disabled = false;
+        })
+        .withFailureHandler(function(error) {
+            alert('Falha ao exportar dados: ' + error.message);
+            button.innerHTML = originalText;
+            button.disabled = false;
+        })
+        .getDevolucaoExportDataWithCache(dateRange);
+}
+
+// Função auxiliar para criar e baixar o arquivo CSV
+function exportToCsv(filename, rows) {
+    if (!rows || rows.length === 0) { 
+        alert('Não há dados para exportar.'); 
+        return; 
+    }
+    const processRow = (row) => {
+        return row.map(val => {
+            let innerValue = val === null || val === undefined ? '' : String(val);
+            if (val instanceof Date) { 
+                innerValue = val.toLocaleString('pt-BR'); 
+            }
+            // Trata valores monetários que podem estar como números
+            if (typeof val === 'number') {
+                innerValue = String(val).replace('.', ',');
+            }
+            let result = innerValue.replace(/"/g, '""');
+            if (result.search(/("|,|\n)/g) >= 0) { 
+                result = '"' + result + '"'; 
+            }
+            return result;
+        }).join(';'); // Usando ponto e vírgula como separador para melhor compatibilidade com Excel no Brasil
+    };
+    const csvContent = rows.map(processRow).join('\n');
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
 }
 
 </script>
