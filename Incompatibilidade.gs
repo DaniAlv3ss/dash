@@ -6,6 +6,7 @@
  * Busca e processa dados usando a API Google Visualization para performance otimizada.
  * A query filtra os dados por data diretamente na planilha, transferindo apenas
  * os dados relevantes para o script, o que acelera drasticamente o carregamento.
+ * MODIFICADO: Adiciona a busca por tipos de problema únicos para popular o filtro.
  */
 function getIncompatibilidadeData(dateRange) {
   try {
@@ -25,42 +26,13 @@ function getIncompatibilidadeData(dateRange) {
       CUSTO_CF_NOVO: 24, CUSTO_TROCAS: 25, FABRICANTE: 26, NOME_RESPONSAVEL: 27
     };
     
-    // 1. Construir a Query
-    // Seleciona todas as colunas (A-AB) onde a data na coluna A está dentro do intervalo.
-    // Ordena pela data de forma decrescente para facilitar a lógica de unicidade.
+    // 1. Construir a Query para os dados principais
     const query = `SELECT * WHERE A >= date '${dateRange.start}' AND A <= date '${dateRange.end}' ORDER BY A DESC`;
     
     // 2. Fazer a Requisição via API de Visualização
-    const url = `https://docs.google.com/spreadsheets/d/${ID_PLANILHA_INCOMPATIBILIDADE}/gviz/tq?tq=${encodeURIComponent(query)}&gid=${aba.getSheetId()}`;
-    const response = UrlFetchApp.fetch(url, {
-      headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }
-    });
+    const dadosBrutos = executeQuery_(aba, query);
 
-    // A API retorna um JSONP. Precisamos limpá-lo para obter o JSON puro.
-    const jsonText = response.getContentText().replace("/*O_o*/\ngoogle.visualization.Query.setResponse(", "").replace(");", "");
-    const queryResult = JSON.parse(jsonText);
-    
-    if (queryResult.status === 'error') {
-      throw new Error(`Erro na query: ${queryResult.errors[0].detailed_message}`);
-    }
-    
-    // 3. Parsear a Resposta da API para um formato de array simples
-    const dadosBrutos = (queryResult.table.rows || []).map(row => 
-      (row.c || []).map(cell => {
-        if (!cell) return null;
-        if (cell.v instanceof Date || (typeof cell.v === 'string' && cell.v.startsWith('Date('))) {
-          // Extrai os valores numéricos da string "Date(y,m,d,h,m,s)"
-          const params = String(cell.v).match(/\d+/g);
-          if (params) {
-            // new Date(year, month(0-11), day, hours, minutes, seconds)
-            return new Date(params[0], params[1], params[2], params[3] || 0, params[4] || 0, params[5] || 0);
-          }
-        }
-        return cell.v; // Retorna o valor (string, number, boolean)
-      })
-    );
-
-    // 4. Processar os dados já filtrados e ordenados
+    // 3. Processar os dados já filtrados e ordenados
     const osProcessadas = new Set();
     let custoTotalTrocas = 0;
     let tempoTotalTratativa = 0;
@@ -69,16 +41,14 @@ function getIncompatibilidadeData(dateRange) {
     const contagemProblemas = {};
     const contagemFabricantes = {};
     const tabelaDetalhada = [];
+    const tiposDeProblemaUnicos = new Set(); // NOVO: Para coletar tipos de problema
 
     dadosBrutos.forEach(linha => {
       const os = linha[INDICES.OS] ? String(linha[INDICES.OS]).trim() : null;
-      // Como os dados já estão ordenados do mais novo para o mais antigo, a primeira vez
-      // que vemos uma OS, ela é a mais recente.
       if (!os || os === "" || osProcessadas.has(os)) return;
       
       osProcessadas.add(os);
 
-      // CORREÇÃO: Lógica de conversão de moeda ajustada para o formato brasileiro (R$ 1.234,56)
       const custoRaw = linha[INDICES.CUSTO_TROCAS];
       let custo = 0;
       if (typeof custoRaw === 'number') {
@@ -104,7 +74,10 @@ function getIncompatibilidadeData(dateRange) {
       const fabricante = (linha[INDICES.FABRICANTE] || "Não especificado").trim();
       
       if(tecnico && tecnico !== "Não especificado") contagemTecnicos[tecnico] = (contagemTecnicos[tecnico] || 0) + 1;
-      if(problema && problema !== "Não especificado") contagemProblemas[problema] = (contagemProblemas[problema] || 0) + 1;
+      if(problema && problema !== "Não especificado") {
+        contagemProblemas[problema] = (contagemProblemas[problema] || 0) + 1;
+        tiposDeProblemaUnicos.add(problema); // Adiciona ao Set
+      }
       if(fabricante && fabricante !== "Não especificado") contagemFabricantes[fabricante] = (contagemFabricantes[fabricante] || 0) + 1;
       
       tabelaDetalhada.push({
@@ -120,7 +93,6 @@ function getIncompatibilidadeData(dateRange) {
     const topProblemas = Object.entries(contagemProblemas).sort(([,a],[,b]) => b-a).slice(0, 5);
     const topFabricantes = Object.entries(contagemFabricantes).sort(([,a],[,b]) => b-a).slice(0, 10);
     
-    // A tabela já está ordenada pela query, mas se precisar reordenar por data de início:
     tabelaDetalhada.sort((a, b) => {
         const dateA = a.data !== 'N/A' ? new Date(a.data.split(' ')[0].split('/').reverse().join('-') + ' ' + a.data.split(' ')[1]) : new Date(0);
         const dateB = b.data !== 'N/A' ? new Date(b.data.split(' ')[0].split('/').reverse().join('-') + ' ' + b.data.split(' ')[1]) : new Date(0);
@@ -129,7 +101,9 @@ function getIncompatibilidadeData(dateRange) {
 
     return {
       kpis: { totalIncompatibilidades: osProcessadas.size, custoTotal: custoTotalTrocas, tempoMedioHoras: tempoMedioTratativa },
-      topTecnicos: topTecnicos, topProblemas: topProblemas, topFabricantes: topFabricantes, tabela: tabelaDetalhada
+      topTecnicos: topTecnicos, topProblemas: topProblemas, topFabricantes: topFabricantes, 
+      tabela: tabelaDetalhada,
+      uniqueProblemTypes: Array.from(tiposDeProblemaUnicos).sort() // NOVO: Retorna os tipos de problema
     };
 
   } catch (e) {
@@ -297,7 +271,7 @@ function getIncompatibilidadeDataForTechnician(dateRange, tecnicoNome) {
  * Versão com cache da função de busca de dados.
  */
 function getIncompatibilidadeDataWithCache(dateRange) {
-  const cacheKey = `incompatibilidade_data_v6_query_${dateRange.start}_${dateRange.end}`;
+  const cacheKey = `incompatibilidade_data_v7_query_types_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getIncompatibilidadeData, [dateRange]);
 }
 
@@ -308,4 +282,3 @@ function getIncompatibilidadeDataForTechnicianWithCache(dateRange, tecnicoNome) 
   const cacheKey = `incompat_tecnico_v9_annual_interactive_${dateRange.start}_${dateRange.end}_${tecnicoNome.replace(/\s+/g, '_')}`;
   return getOrSetCache(cacheKey, getIncompatibilidadeDataForTechnician, [dateRange, tecnicoNome]);
 }
-
