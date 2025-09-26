@@ -310,9 +310,112 @@ function getDevolucaoExportData(dateRange) {
   }
 }
 
+/**
+ * NOVA FUNÇÃO: Busca os pedidos de um motivo específico e cruza com outras bases se for cancelamento.
+ */
+function getPedidosPorMotivo(dateRange, motivo) {
+  try {
+    const motivoLower = motivo.toLowerCase();
+    
+    // 1. Busca dados da base de Devolução
+    const planilhaDev = SpreadsheetApp.openById(ID_PLANILHA_DEVOLUCAO);
+    const abaDevolucao = planilhaDev.getSheetByName(NOME_ABA_DEVOLUCAO);
+    if (!abaDevolucao) throw new Error("Aba 'Base Devolução' não encontrada.");
+    const todosDadosDevolucao = abaDevolucao.getRange(2, 1, abaDevolucao.getLastRow() - 1, 27).getValues();
+
+    // 2. Filtra os pedidos da base de devolução pelo motivo e data
+    const pedidosFiltrados = {};
+    todosDadosDevolucao.forEach(linha => {
+      const dataNfe = linha[3]; // DATA_NFE
+      if (!dataNfe || !(dataNfe instanceof Date)) return;
+      const dataFormatada = Utilities.formatDate(dataNfe, "GMT-3", "yyyy-MM-dd");
+      
+      const motivoLinha = (linha[26] || "").toLowerCase().trim(); // MOTIVO
+      if (dataFormatada >= dateRange.start && dataFormatada <= dateRange.end && motivoLinha === motivoLower) {
+          const pedidoId = linha[0] ? String(linha[0]).trim() : null; // PEDIDO_ID
+          if (!pedidoId) return;
+
+          if (!pedidosFiltrados[pedidoId]) {
+            pedidosFiltrados[pedidoId] = {
+              pedidoId: pedidoId,
+              dataNfe: Utilities.formatDate(dataNfe, "GMT-3", "dd/MM/yyyy"),
+              cliente: linha[1] || 'N/A', // CLIENTE
+              produtos: new Set(),
+              justificativa: new Set()
+            };
+          }
+          const produto = linha[10] || 'Produto não especificado'; // PRODUTO
+          pedidosFiltrados[pedidoId].produtos.add(produto);
+      }
+    });
+
+    // 3. Se for 'Cancelamento', busca justificativas em outras bases
+    if (motivoLower.includes("cancelamento")) {
+        const pedidosParaBuscar = Object.keys(pedidosFiltrados);
+        if (pedidosParaBuscar.length > 0) {
+            // Busca na planilha de Trocas
+            try {
+              const planilhaTrocas = SpreadsheetApp.openById(ID_PLANILHA_TROCAS);
+              const abaTrocas = planilhaTrocas.getSheetByName(NOME_ABA_TROCAS);
+              if (abaTrocas) {
+                  const dadosTrocas = abaTrocas.getRange(2, 1, abaTrocas.getLastRow() - 1, 5).getValues();
+                  dadosTrocas.forEach(linha => {
+                      const pedidoId = linha[0] ? String(linha[0]).trim() : null;
+                      if (pedidosFiltrados[pedidoId]) {
+                          const motivoTroca = linha[4] ? String(linha[4]).trim() : null; // MOTIVO
+                          if (motivoTroca) {
+                              pedidosFiltrados[pedidoId].justificativa.add(`Troca: ${motivoTroca}`);
+                          }
+                      }
+                  });
+              }
+            } catch(e) { Logger.log(`Não foi possível ler a planilha de Trocas: ${e.message}`); }
+
+            // Busca na planilha de Incompatibilidade
+            try {
+              const planilhaIncompat = SpreadsheetApp.openById(ID_PLANILHA_INCOMPATIBILIDADE);
+              const abaIncompat = planilhaIncompat.getSheetByName("Divergência");
+              if (abaIncompat) {
+                  const dadosIncompat = abaIncompat.getRange(2, 1, abaIncompat.getLastRow() - 1, 11).getValues();
+                  dadosIncompat.forEach(linha => {
+                      const pedidoId = linha[8] ? String(linha[8]).trim() : null; // PEDIDO
+                      if (pedidosFiltrados[pedidoId]) {
+                          const tipoProblema = linha[10] ? String(linha[10]).trim() : null; // TIPO_PROBLEMA
+                          if (tipoProblema) {
+                              pedidosFiltrados[pedidoId].justificativa.add(`Incompat.: ${tipoProblema}`);
+                          }
+                      }
+                  });
+              }
+            } catch(e) { Logger.log(`Não foi possível ler a planilha de Incompatibilidade: ${e.message}`); }
+        }
+    }
+
+    // 4. Formata o resultado final
+    return Object.values(pedidosFiltrados).map(p => {
+        return {
+            pedidoId: p.pedidoId,
+            dataNfe: p.dataNfe,
+            cliente: p.cliente,
+            produtos: Array.from(p.produtos), // <-- ALTERADO AQUI
+            justificativa: p.justificativa.size > 0 ? Array.from(p.justificativa).join('; ') : 'Não encontrada'
+        };
+    }).sort((a, b) => { // Ordena por data
+        const [dayA, monthA, yearA] = a.dataNfe.split('/');
+        const [dayB, monthB, yearB] = b.dataNfe.split('/');
+        return new Date(`${yearB}-${monthB}-${dayB}`) - new Date(`${yearA}-${monthA}-${dayA}`);
+    });
+
+  } catch (e) {
+    Logger.log(`Erro em getPedidosPorMotivo: ${e.stack}`);
+    return { error: e.message };
+  }
+}
+
+
 // --- VERSÕES COM CACHE PARA SEREM CHAMADAS PELO CLIENTE ---
 function getDevolucaoDataWithCache(dateRange) {
-  const cacheKey = `devolucao_data_v13_period_fix_${dateRange.start}_${dateRange.end}`;
+  const cacheKey = `devolucao_data_v14_period_fix_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDevolucaoData, [dateRange]);
 }
 
@@ -328,3 +431,7 @@ function getDevolucaoExportDataWithCache(dateRange) {
   return getDevolucaoExportData(dateRange);
 }
 
+function getPedidosPorMotivoWithCache(dateRange, motivo) {
+  const cacheKey = `pedidos_por_motivo_v3_${dateRange.start}_${dateRange.end}_${motivo.replace(/\s+/g, '_')}`;
+  return getOrSetCache(cacheKey, getPedidosPorMotivo, [dateRange, motivo]);
+}
