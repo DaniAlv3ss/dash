@@ -5,8 +5,10 @@
 
 // Variáveis globais para a tabela principal
 let allIncompatibilidadeRows = [];
+let filteredIncompatibilidadeRows = []; // NOVO: para dados filtrados
 let incompatCurrentPage = 1;
 const incompatRowsPerPage = 20;
+let filterTimeoutIncompat; // NOVO: para debounce da busca
 
 // Variáveis globais para a tabela do modal do técnico
 let allTecnicoCasos = [];
@@ -32,7 +34,7 @@ function initializeIncompatibilidadePage() {
             }
         });
         document.getElementById('incompat-next-page').addEventListener('click', () => {
-            if (incompatCurrentPage * incompatRowsPerPage < allIncompatibilidadeRows.length) {
+            if (incompatCurrentPage * incompatRowsPerPage < filteredIncompatibilidadeRows.length) { // MODIFICADO: usa filtered
                 incompatCurrentPage++;
                 renderIncompatibilidadeTablePage();
             }
@@ -51,6 +53,15 @@ function initializeIncompatibilidadePage() {
                 renderTecnicoCasosPage();
             }
         });
+
+        // --- INÍCIO: NOVOS LISTENERS PARA FILTROS ---
+        document.getElementById('incompat-search-input').addEventListener('input', () => {
+            clearTimeout(filterTimeoutIncompat);
+            filterTimeoutIncompat = setTimeout(applyTableFilters, 300);
+        });
+        document.getElementById('incompat-problem-filter-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-problem-filter-popup'));
+        document.getElementById('incompat-export-btn').addEventListener('click', exportIncompatibilidadeData);
+        // --- FIM: NOVOS LISTENERS PARA FILTROS ---
 
         fetchIncompatibilidadeData();
 
@@ -118,8 +129,59 @@ function onIncompatibilidadeDataReceived(data) {
     renderTopListIncompat('top-problemas-container', data.topProblemas, '#ff6000');
     renderTopListIncompat('top-fabricantes-container', data.topFabricantes, '#16a34a');
 
-    // Prepara e renderiza a tabela detalhada
+    // Prepara a tabela e os filtros
     allIncompatibilidadeRows = data.tabela || [];
+    populateProblemFilter(data.uniqueProblemTypes); // NOVO: popula o filtro de problemas
+    applyTableFilters(); // NOVO: aplica filtros iniciais (nenhum) e renderiza a tabela
+}
+
+// NOVO: Popula o dropdown de filtro de problemas com checkboxes
+function populateProblemFilter(problemTypes) {
+    const container = document.getElementById('incompat-problem-filter-options');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    if (!problemTypes || problemTypes.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400">Nenhum tipo encontrado.</p>';
+        return;
+    }
+
+    problemTypes.forEach(problem => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center';
+        const problemId = 'problem-' + problem.replace(/[^a-zA-Z0-9]/g, '');
+        div.innerHTML = `
+            <input type="checkbox" id="${problemId}" value="${problem}" class="problem-filter-checkbox h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500">
+            <label for="${problemId}" class="ml-2 text-sm text-slate-600">${problem}</label>
+        `;
+        container.appendChild(div);
+    });
+
+    document.querySelectorAll('.problem-filter-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', applyTableFilters);
+    });
+}
+
+// NOVO: Função central para aplicar todos os filtros da tabela
+function applyTableFilters() {
+    const searchTerm = document.getElementById('incompat-search-input').value.toLowerCase();
+    
+    const selectedProblems = [];
+    document.querySelectorAll('.problem-filter-checkbox:checked').forEach(checkbox => {
+        selectedProblems.push(checkbox.value);
+    });
+
+    filteredIncompatibilidadeRows = allIncompatibilidadeRows.filter(row => {
+        const searchMatch = !searchTerm ||
+            (row.tecnico && row.tecnico.toLowerCase().includes(searchTerm)) ||
+            (row.pedido && String(row.pedido).toLowerCase().includes(searchTerm)) ||
+            (row.os && String(row.os).toLowerCase().includes(searchTerm));
+        
+        const problemMatch = selectedProblems.length === 0 || selectedProblems.includes(row.tipoProblema);
+
+        return searchMatch && problemMatch;
+    });
+
     incompatCurrentPage = 1;
     renderIncompatibilidadeTablePage();
 }
@@ -154,6 +216,7 @@ function renderTopListIncompat(containerId, data, barColor) {
     });
 }
 
+// MODIFICADO: para usar 'filteredIncompatibilidadeRows'
 function renderIncompatibilidadeTablePage() {
     const tbody = document.getElementById('incompat-table-body');
     const pageInfo = document.getElementById('incompat-page-info');
@@ -163,8 +226,8 @@ function renderIncompatibilidadeTablePage() {
     if (!tbody) return;
     tbody.innerHTML = '';
 
-    if (allIncompatibilidadeRows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4">Nenhum registro encontrado para o período.</td></tr>';
+    if (filteredIncompatibilidadeRows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4">Nenhum registro encontrado para os filtros aplicados.</td></tr>';
         pageInfo.textContent = '0 de 0';
         prevBtn.disabled = true;
         nextBtn.disabled = true;
@@ -173,7 +236,7 @@ function renderIncompatibilidadeTablePage() {
 
     const startIndex = (incompatCurrentPage - 1) * incompatRowsPerPage;
     const endIndex = startIndex + incompatRowsPerPage;
-    const pageRows = allIncompatibilidadeRows.slice(startIndex, endIndex);
+    const pageRows = filteredIncompatibilidadeRows.slice(startIndex, endIndex);
 
     let tableHtml = '';
     pageRows.forEach(row => {
@@ -197,9 +260,9 @@ function renderIncompatibilidadeTablePage() {
     });
     tbody.innerHTML = tableHtml;
     
-    pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, allIncompatibilidadeRows.length)} de ${allIncompatibilidadeRows.length}`;
+    pageInfo.textContent = `${startIndex + 1} - ${Math.min(endIndex, filteredIncompatibilidadeRows.length)} de ${filteredIncompatibilidadeRows.length}`;
     prevBtn.disabled = incompatCurrentPage === 1;
-    nextBtn.disabled = endIndex >= allIncompatibilidadeRows.length;
+    nextBtn.disabled = endIndex >= filteredIncompatibilidadeRows.length;
 }
 
 // --- Funções do Modal do Técnico ---
@@ -387,5 +450,62 @@ function renderTecnicoCasosPage() {
     nextBtn.disabled = endIndex >= allTecnicoCasos.length;
 }
 
-</script>
+// --- INÍCIO: NOVAS FUNÇÕES DE EXPORTAÇÃO E CSV HELPER ---
 
+// Função para exportar os dados da tabela de incompatibilidades
+function exportIncompatibilidadeData() {
+    if (filteredIncompatibilidadeRows.length === 0) {
+        alert('Não há dados para exportar com os filtros atuais.');
+        return;
+    }
+
+    const headers = ['Data', 'Técnico', 'OS', 'Pedido', 'Produto', 'Tipo de Problema', 'Detalhe do Problema'];
+    
+    // Mapeia os dados filtrados para o formato de array de arrays
+    const dataToExport = filteredIncompatibilidadeRows.map(row => [
+        row.data,
+        row.tecnico,
+        row.os,
+        row.pedido,
+        row.produto,
+        row.tipoProblema,
+        row.detalheProblema
+    ]);
+
+    const csvRows = [headers, ...dataToExport];
+    const startDate = document.getElementById('incompat-startDate').value;
+    const endDate = document.getElementById('incompat-endDate').value;
+    
+    exportToCsvIncompat(`incompatibilidades_${startDate}_a_${endDate}.csv`, csvRows);
+}
+
+// Função auxiliar para criar e baixar o arquivo CSV
+function exportToCsvIncompat(filename, rows) {
+    const processRow = (row) => {
+        return row.map(val => {
+            let innerValue = val === null || val === undefined ? '' : String(val);
+            let result = innerValue.replace(/"/g, '""');
+            if (result.search(/("|,|\n)/g) >= 0) { 
+                result = '"' + result + '"'; 
+            }
+            return result;
+        }).join(';'); // Usando ponto e vírgula para compatibilidade com Excel no Brasil
+    };
+
+    const csvContent = rows.map(processRow).join('\n');
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+}
+// --- FIM: NOVAS FUNÇÕES DE EXPORTAÇÃO E CSV HELPER ---
+
+</script>
