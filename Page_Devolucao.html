@@ -162,3 +162,42 @@
     </div>
 </div>
 
+<!-- NOVO MODAL PARA DETALHES DO MOTIVO -->
+<div id="motivo-detail-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[70] hidden items-center justify-center p-4 opacity-0 transition-opacity duration-300" onclick="closeMotivoDetailModal()">
+    <div id="motivo-detail-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center p-4 border-b bg-white rounded-t-xl flex-shrink-0">
+            <h2 id="motivo-detail-title" class="text-xl font-semibold text-slate-800">Pedidos com Motivo</h2>
+            <div class="flex items-center gap-4">
+                <button id="export-motivo-detail-btn" class="bg-emerald-600 text-white px-3 py-1 rounded-full flex items-center gap-2 hover:bg-emerald-700 transition-colors text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span>Exportar</span>
+                </button>
+                <button onclick="closeMotivoDetailModal()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+            </div>
+        </div>
+        <div class="p-6 overflow-y-auto flex-grow">
+            <div id="motivo-detail-loader" class="text-center py-10">
+                <p class="text-slate-500">Carregando detalhes dos pedidos...</p>
+            </div>
+            <div id="motivo-detail-table-container" class="overflow-x-auto hidden">
+                <table class="w-full text-sm text-left text-slate-700">
+                     <thead class="bg-slate-50 text-slate-600 uppercase">
+                        <tr>
+                            <th class="p-3">Pedido</th>
+                            <th class="p-3">Data NFE</th>
+                            <th class="p-3">Cliente</th>
+                            <th class="p-3">Produtos</th>
+                            <th class="p-3">Justificativa</th>
+                        </tr>
+                     </thead>
+                     <tbody id="motivo-detail-table-body" class="bg-white">
+                         <!-- Itens serão injetados aqui via JS -->
+                     </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
