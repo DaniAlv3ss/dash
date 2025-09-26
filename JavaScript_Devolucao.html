@@ -14,6 +14,9 @@ let allPedidosDevolucao = [];
 let pedidosDevolucaoCurrentPage = 1;
 const pedidosDevolucaoRowsPerPage = 20;
 
+// Variável para guardar dados do modal para exportação
+let currentMotivoDetailData = [];
+
 function initializeDevolucaoPage() {
     google.charts.load('current', { 'packages': ['corechart'] });
     google.charts.setOnLoadCallback(() => {
@@ -171,24 +174,26 @@ function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
              trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-slate-400" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h14" /></svg></span>`;
         }
 
-        const cardHtml = `
-            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col h-full">
-                <h4 class="font-semibold text-slate-800 truncate text-sm" title="${motivo}">${motivo}</h4>
-                <div class="mt-2 pt-2 border-t border-slate-200 flex-grow">
-                    <div class="flex justify-between items-baseline">
-                        <span class="text-2xl font-bold text-orange-600">${quantidade}</span>
-                        <div class="flex items-center gap-2">
-                           ${trendIndicatorHtml}
-                           <span class="text-sm font-semibold text-slate-500">${percentageOfTotal.toFixed(1)}%</span>
-                        </div>
+        const card = document.createElement('div');
+        card.className = 'bg-slate-50 border border-slate-200 rounded-lg p-3 flex flex-col h-full cursor-pointer hover:shadow-md hover:border-orange-300 transition-all';
+        card.onclick = () => openMotivoDetailModal(motivo);
+
+        card.innerHTML = `
+            <h4 class="font-semibold text-slate-800 truncate text-sm" title="${motivo}">${motivo}</h4>
+            <div class="mt-2 pt-2 border-t border-slate-200 flex-grow">
+                <div class="flex justify-between items-baseline">
+                    <span class="text-2xl font-bold text-orange-600">${quantidade}</span>
+                    <div class="flex items-center gap-2">
+                       ${trendIndicatorHtml}
+                       <span class="text-sm font-semibold text-slate-500">${percentageOfTotal.toFixed(1)}%</span>
                     </div>
-                    <p class="text-xs text-slate-500 text-left mt-1">Valor: ${valorFormatado}</p>
                 </div>
-                <div class="w-full bg-slate-200 rounded-full h-1.5 mt-2">
-                    <div class="bg-orange-500 h-1.5 rounded-full" style="width: ${proportionalWidth}%"></div>
-                </div>
+                <p class="text-xs text-slate-500 text-left mt-1">Valor: ${valorFormatado}</p>
+            </div>
+            <div class="w-full bg-slate-200 rounded-full h-1.5 mt-2">
+                <div class="bg-orange-500 h-1.5 rounded-full" style="width: ${proportionalWidth}%"></div>
             </div>`;
-        container.innerHTML += cardHtml;
+        container.appendChild(card);
     });
 }
 
@@ -554,5 +559,156 @@ function exportToCsv(filename, rows) {
     }
 }
 
+// --- NOVAS FUNÇÕES PARA O MODAL DE DETALHES DO MOTIVO ---
+
+function togglePedidoDetails(pedidoId) {
+    const detailRows = document.querySelectorAll(`.detail-row-${pedidoId}`);
+    const icon = document.getElementById(`icon-${pedidoId}`);
+    detailRows.forEach(row => {
+        row.classList.toggle('hidden');
+    });
+    if (icon) {
+        icon.classList.toggle('rotate-90');
+    }
+}
+
+function openMotivoDetailModal(motivo) {
+    currentMotivoDetailData = []; // Limpa dados antigos
+    const modal = document.getElementById('motivo-detail-modal');
+    const modalContent = document.getElementById('motivo-detail-modal-content');
+    document.getElementById('motivo-detail-title').textContent = `Pedidos: ${motivo}`;
+
+    document.getElementById('motivo-detail-loader').style.display = 'block';
+    document.getElementById('motivo-detail-table-container').classList.add('hidden');
+    
+    const exportBtn = document.getElementById('export-motivo-detail-btn');
+    exportBtn.disabled = true;
+    exportBtn.onclick = null;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalContent.classList.remove('scale-95');
+    }, 10);
+
+    const dateRange = {
+        start: document.getElementById('dev-startDate').value,
+        end: document.getElementById('dev-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(function(pedidos) {
+            document.getElementById('motivo-detail-loader').style.display = 'none';
+            const tableContainer = document.getElementById('motivo-detail-table-container');
+            tableContainer.classList.remove('hidden');
+            const tbody = document.getElementById('motivo-detail-table-body');
+            tbody.innerHTML = '';
+
+            if (pedidos.error) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Erro: ${pedidos.error}</td></tr>`;
+                return;
+            }
+            
+            currentMotivoDetailData = pedidos; // Salva os dados para exportação
+            if (!pedidos || pedidos.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-3 text-center text-slate-500">Nenhum pedido encontrado para este motivo no período.</td></tr>';
+                exportBtn.disabled = true;
+                return;
+            }
+            
+            exportBtn.disabled = false;
+            exportBtn.onclick = () => exportMotivoDetails(motivo);
+
+            let fragment = document.createDocumentFragment();
+            pedidos.forEach(p => {
+                const hasMultipleProducts = p.produtos.length > 1;
+                const pedidoIdLimpo = p.pedidoId.replace(/[^a-zA-Z0-9]/g, '');
+
+                const mainRow = document.createElement('tr');
+                mainRow.className = 'border-b border-slate-200';
+                
+                let mainRowContent = `
+                    <td class="p-3 align-top">${p.pedidoId}</td>
+                    <td class="p-3 align-top">${p.dataNfe}</td>
+                    <td class="p-3 align-top" title="${p.cliente}">${p.cliente}</td>
+                `;
+
+                if (hasMultipleProducts) {
+                    mainRow.classList.add('hover:bg-slate-50', 'cursor-pointer');
+                    mainRow.onclick = () => togglePedidoDetails(pedidoIdLimpo);
+                    mainRowContent += `
+                        <td class="p-3 align-top">
+                            <div class="flex items-center text-slate-600">
+                                ${p.produtos.length} produtos 
+                                <svg id="icon-${pedidoIdLimpo}" class="w-4 h-4 text-slate-500 ml-2 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </div>
+                        </td>
+                        <td class="p-3 align-top">${p.justificativa}</td>
+                    `;
+                } else {
+                     mainRowContent += `
+                        <td class="p-3 align-top">${p.produtos[0] || 'N/A'}</td>
+                        <td class="p-3 align-top">${p.justificativa}</td>
+                    `;
+                }
+                mainRow.innerHTML = mainRowContent;
+                fragment.appendChild(mainRow);
+                
+                if (hasMultipleProducts) {
+                    p.produtos.forEach(produto => {
+                        const detailRow = document.createElement('tr');
+                        detailRow.className = `detail-row-${pedidoIdLimpo} hidden`;
+                        detailRow.innerHTML = `<td colspan="3"></td><td colspan="2" class="py-2 px-3 pl-10 text-slate-600 bg-slate-50 border-b border-slate-200">${produto}</td>`;
+                        fragment.appendChild(detailRow);
+                    });
+                }
+            });
+            tbody.appendChild(fragment);
+        })
+        .withFailureHandler(function(error) {
+            document.getElementById('motivo-detail-loader').style.display = 'none';
+            const tbody = document.getElementById('motivo-detail-table-body');
+            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Falha ao buscar detalhes: ${error.message}</td></tr>`;
+        })
+        .getPedidosPorMotivoWithCache(dateRange, motivo);
+}
+
+function exportMotivoDetails(motivo) {
+    if (!currentMotivoDetailData || currentMotivoDetailData.length === 0) {
+        alert('Não há dados para exportar.');
+        return;
+    }
+    const headers = ['Pedido', 'Data NFE', 'Cliente', 'Produto', 'Justificativa'];
+    const rows = [headers];
+    currentMotivoDetailData.forEach(pedido => {
+        if (pedido.produtos.length > 0) {
+            pedido.produtos.forEach((produto, index) => {
+                if (index === 0) {
+                    rows.push([pedido.pedidoId, pedido.dataNfe, pedido.cliente, produto, pedido.justificativa]);
+                } else {
+                    rows.push(['', '', '', produto, '']);
+                }
+            });
+        } else {
+            rows.push([pedido.pedidoId, pedido.dataNfe, pedido.cliente, '', pedido.justificativa]);
+        }
+    });
+
+    const filename = `pedidos_motivo_${motivo.replace(/\s+/g, '_').toLowerCase()}.csv`;
+    exportToCsv(filename, rows);
+}
+
+
+function closeMotivoDetailModal() {
+    const modal = document.getElementById('motivo-detail-modal');
+    const modalContent = document.getElementById('motivo-detail-modal-content');
+    modal.classList.add('opacity-0');
+    modalContent.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 300);
+}
 </script>
 
