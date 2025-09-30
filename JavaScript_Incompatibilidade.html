@@ -5,69 +5,74 @@
 
 // Variáveis globais para a tabela principal
 let allIncompatibilidadeRows = [];
-let filteredIncompatibilidadeRows = []; // NOVO: para dados filtrados
+let filteredIncompatibilidadeRows = [];
 let incompatCurrentPage = 1;
 const incompatRowsPerPage = 20;
-let filterTimeoutIncompat; // NOVO: para debounce da busca
+let filterTimeoutIncompat;
 
 // Variáveis globais para a tabela do modal do técnico
 let allTecnicoCasos = [];
 let tecnicoCurrentPage = 1;
 const tecnicoRowsPerPage = 10;
 
+// NOVO: Variáveis para ordenação da tabela de todos os técnicos
+let allTecnicosSortCol = 'producao';
+let allTecnicosSortDir = 'desc';
+
 function initializeIncompatibilidadePage() {
-    try {
-        const today = new Date();
-        const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        document.getElementById('incompat-endDate').value = today.toISOString().split('T')[0];
-        document.getElementById('incompat-startDate').value = firstDayMonth.toISOString().split('T')[0];
-        
-        document.getElementById('incompat-applyButton').addEventListener('click', applyIncompatDateFilter);
-        document.getElementById('incompat-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-date-range-popup'));
-        document.getElementById('incompat-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-date-range-popup'));
-        updateIncompatDateRangeDisplay();
-        
-        document.getElementById('incompat-prev-page').addEventListener('click', () => {
-            if (incompatCurrentPage > 1) {
-                incompatCurrentPage--;
-                renderIncompatibilidadeTablePage();
-            }
-        });
-        document.getElementById('incompat-next-page').addEventListener('click', () => {
-            if (incompatCurrentPage * incompatRowsPerPage < filteredIncompatibilidadeRows.length) { // MODIFICADO: usa filtered
-                incompatCurrentPage++;
-                renderIncompatibilidadeTablePage();
-            }
-        });
+    google.charts.load('current', { 'packages': ['corechart'] });
+    google.charts.setOnLoadCallback(() => {
+        try {
+            const today = new Date();
+            const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            document.getElementById('incompat-endDate').value = today.toISOString().split('T')[0];
+            document.getElementById('incompat-startDate').value = firstDayMonth.toISOString().split('T')[0];
+            
+            document.getElementById('incompat-applyButton').addEventListener('click', applyIncompatDateFilter);
+            document.getElementById('incompat-date-range-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-date-range-popup'));
+            document.getElementById('incompat-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-date-range-popup'));
+            updateIncompatDateRangeDisplay();
+            
+            document.getElementById('incompat-prev-page').addEventListener('click', () => {
+                if (incompatCurrentPage > 1) {
+                    incompatCurrentPage--;
+                    renderIncompatibilidadeTablePage();
+                }
+            });
+            document.getElementById('incompat-next-page').addEventListener('click', () => {
+                if (incompatCurrentPage * incompatRowsPerPage < filteredIncompatibilidadeRows.length) {
+                    incompatCurrentPage++;
+                    renderIncompatibilidadeTablePage();
+                }
+            });
 
-        // Adiciona event listeners para a paginação do modal
-        document.getElementById('tecnico-casos-prev-page').addEventListener('click', () => {
-            if (tecnicoCurrentPage > 1) {
-                tecnicoCurrentPage--;
-                renderTecnicoCasosPage();
-            }
-        });
-        document.getElementById('tecnico-casos-next-page').addEventListener('click', () => {
-            if (tecnicoCurrentPage * tecnicoRowsPerPage < allTecnicoCasos.length) {
-                tecnicoCurrentPage++;
-                renderTecnicoCasosPage();
-            }
-        });
+            document.getElementById('tecnico-casos-prev-page').addEventListener('click', () => {
+                if (tecnicoCurrentPage > 1) {
+                    tecnicoCurrentPage--;
+                    renderTecnicoCasosPage();
+                }
+            });
+            document.getElementById('tecnico-casos-next-page').addEventListener('click', () => {
+                if (tecnicoCurrentPage * tecnicoRowsPerPage < allTecnicoCasos.length) {
+                    tecnicoCurrentPage++;
+                    renderTecnicoCasosPage();
+                }
+            });
 
-        // --- INÍCIO: NOVOS LISTENERS PARA FILTROS ---
-        document.getElementById('incompat-search-input').addEventListener('input', () => {
-            clearTimeout(filterTimeoutIncompat);
-            filterTimeoutIncompat = setTimeout(applyTableFilters, 300);
-        });
-        document.getElementById('incompat-problem-filter-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-problem-filter-popup'));
-        document.getElementById('incompat-export-btn').addEventListener('click', exportIncompatibilidadeData);
-        // --- FIM: NOVOS LISTENERS PARA FILTROS ---
+            document.getElementById('incompat-search-input').addEventListener('input', () => {
+                clearTimeout(filterTimeoutIncompat);
+                filterTimeoutIncompat = setTimeout(applyTableFilters, 300);
+            });
+            document.getElementById('incompat-problem-filter-toggle').addEventListener('click', (e) => toggleDatePopup(e, 'incompat-problem-filter-popup'));
+            document.getElementById('incompat-export-btn').addEventListener('click', exportIncompatibilidadeData);
+            document.getElementById('ver-mais-tecnicos-btn').addEventListener('click', openAllTecnicosModal);
 
-        fetchIncompatibilidadeData();
+            fetchIncompatibilidadeData();
 
-    } catch (error) {
-        displayError("Erro ao inicializar o Dashboard de Incompatibilidades", error);
-    }
+        } catch (error) {
+            displayError("Erro ao inicializar o Dashboard de Incompatibilidades", error);
+        }
+    });
 }
 
 function updateIncompatDateRangeDisplay() {
@@ -119,23 +124,74 @@ function onIncompatibilidadeDataReceived(data) {
     if (loader) loader.style.display = 'none';
     if (content) content.style.visibility = 'visible';
 
-    // Atualiza KPIs
     document.getElementById('kpi-total-casos').textContent = data.kpis.totalIncompatibilidades || 0;
     document.getElementById('kpi-custo-total').textContent = (data.kpis.custoTotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     document.getElementById('kpi-tempo-medio').textContent = `${(data.kpis.tempoMedioHoras || 0).toFixed(1)}h`;
+    document.getElementById('kpi-tempo-medio-montagem').textContent = `${(data.kpis.tempoMedioMontagemGeral || 0).toFixed(2)}h`;
 
-    // Renderiza listas
-    renderTopListIncompat('top-tecnicos-container', data.topTecnicos, '#00529e');
+    renderTopTecnicosList(data.allTecnicosStats.slice(0, 5));
     renderTopListIncompat('top-problemas-container', data.topProblemas, '#ff6000');
     renderTopListIncompat('top-fabricantes-container', data.topFabricantes, '#16a34a');
+    
+    drawDailyProductionVsProblemsChart(data.dailyProductionVsProblems);
 
-    // Prepara a tabela e os filtros
     allIncompatibilidadeRows = data.tabela || [];
-    populateProblemFilter(data.uniqueProblemTypes); // NOVO: popula o filtro de problemas
-    applyTableFilters(); // NOVO: aplica filtros iniciais (nenhum) e renderiza a tabela
+    populateProblemFilter(data.uniqueProblemTypes);
+    applyTableFilters();
 }
 
-// NOVO: Popula o dropdown de filtro de problemas com checkboxes
+function drawDailyProductionVsProblemsChart(chartData) {
+    const chartDiv = document.getElementById('daily-production-problems-chart');
+    if (!chartDiv) return;
+    if (!chartData || chartData.length <= 1) {
+        chartDiv.innerHTML = '<p class="text-center text-slate-500 pt-10">Dados insuficientes para gerar o gráfico no período.</p>';
+        return;
+    }
+
+    const dataArray = [
+        ['Dia', 'Máquinas Montadas', { role: 'annotation' }, 'Problemas', { role: 'annotation' }, { role: 'tooltip', type: 'string', p: { html: true } }]
+    ];
+    chartData.slice(1).forEach(([day, production, problems]) => {
+        const tooltipHtml = `
+            <div style="padding:10px; font-family: Inter, sans-serif; font-size: 12px; min-width: 150px;">
+                <div style="font-weight: bold; margin-bottom: 5px;">${day}</div>
+                <div style="display: flex; align-items: center; margin-top: 5px;"><span style="height: 10px; width: 10px; background-color: #00529e; border-radius: 50%; display: inline-block; margin-right: 8px;"></span><span><strong>${production}</strong> Máquinas Montadas</span></div>
+                <div style="display: flex; align-items: center; margin-top: 5px;"><span style="height: 10px; width: 10px; background-color: #ff6000; border-radius: 50%; display: inline-block; margin-right: 8px;"></span><span><strong>${problems}</strong> Problemas</span></div>
+            </div>`;
+        dataArray.push([day, production, production > 0 ? production.toString() : '', problems, problems > 0 ? problems.toString() : '', tooltipHtml]);
+    });
+    
+    const dataTable = google.visualization.arrayToDataTable(dataArray);
+    const textStyle = { color: '#475569', fontName: 'Inter', fontSize: 12 };
+    const options = {
+        fontName: 'Inter',
+        legend: { position: 'top', alignment: 'center', textStyle: textStyle },
+        seriesType: 'bars',
+        series: {
+            0: { color: '#00529e', annotations: { textStyle: { color: '#1e293b', bold: true, auraColor: 'white' } } },
+            1: { type: 'line', color: '#ff6000', lineWidth: 3, pointSize: 6, pointShape: 'circle', annotations: { textStyle: { color: '#ff6000', bold: true, auraColor: 'white' } } }
+        },
+        vAxis: {
+            title: 'Quantidade', 
+            format: '0', 
+            textStyle: textStyle,
+            titleTextStyle: { ...textStyle, color: '#1e293b', bold: true, italic: false },
+            gridlines: { color: '#e2e8f0' }, 
+            viewWindow: { min: 0 }
+        },
+        hAxis: { textStyle: textStyle, slantedText: chartData.length > 20, slantedTextAngle: 45 },
+        backgroundColor: { fill: 'transparent' },
+        chartArea: { left: 60, top: 50, width: '90%', height: '70%' },
+        tooltip: { isHtml: true, trigger: 'focus' },
+        animation: { startup: true, duration: 1000, easing: 'out' },
+        annotations: { alwaysOutside: true, textStyle: { fontSize: 11 } }
+    };
+
+    const chart = new google.visualization.ComboChart(chartDiv);
+    chart.draw(dataTable, options);
+}
+
+
 function populateProblemFilter(problemTypes) {
     const container = document.getElementById('incompat-problem-filter-options');
     if (!container) return;
@@ -162,7 +218,6 @@ function populateProblemFilter(problemTypes) {
     });
 }
 
-// NOVO: Função central para aplicar todos os filtros da tabela
 function applyTableFilters() {
     const searchTerm = document.getElementById('incompat-search-input').value.toLowerCase();
     
@@ -186,6 +241,39 @@ function applyTableFilters() {
     renderIncompatibilidadeTablePage();
 }
 
+function renderTopTecnicosList(data) {
+    const container = document.getElementById('top-tecnicos-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!data || data.length === 0) {
+        container.innerHTML = '<p class="text-sm text-slate-500">Nenhum técnico encontrado.</p>';
+        return;
+    }
+
+    const maxProblemas = Math.max(...data.map(d => d.problemas), 0);
+
+    data.forEach(item => {
+        const percentageProblemas = maxProblemas > 0 ? (item.problemas / maxProblemas) * 100 : 0;
+        
+        const listItem = `
+            <div>
+                <div class="flex justify-between text-sm mb-1">
+                    <span class="font-medium text-slate-700 truncate cursor-pointer hover:text-orange-500" title="${item.tecnico}" onclick="openTecnicoModal('${item.tecnico.replace(/'/g, "\\'")}')">${item.tecnico}</span>
+                    <div class="flex items-center">
+                        <span class="font-bold text-red-600 mr-2" title="Taxa de Problemas">${item.porcentagem.toFixed(2)}%</span>
+                        <span class="font-bold text-slate-800" title="Nº de Problemas">${item.problemas}</span>
+                    </div>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-1.5">
+                    <div class="bg-orange-500 h-1.5 rounded-full" style="width: ${percentageProblemas}%;"></div>
+                </div>
+            </div>`;
+        container.innerHTML += listItem;
+    });
+}
+
+
 function renderTopListIncompat(containerId, data, barColor) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -196,11 +284,10 @@ function renderTopListIncompat(containerId, data, barColor) {
         return;
     }
 
-    const maxCount = data[0][1];
+    const maxCount = data.length > 0 ? data[0][1] : 0;
 
     data.forEach(([item, count]) => {
-        const percentage = (count / maxCount) * 100;
-        
+        const percentage = maxCount > 0 ? (count / maxCount) * 100 : 0;
         const listItem = `
             <div>
                 <div class="flex justify-between text-sm mb-1">
@@ -210,13 +297,12 @@ function renderTopListIncompat(containerId, data, barColor) {
                 <div class="w-full bg-slate-200 rounded-full h-1.5">
                     <div class="h-1.5 rounded-full" style="width: ${percentage}%; background-color: ${barColor};"></div>
                 </div>
-            </div>
-        `;
+            </div>`;
         container.innerHTML += listItem;
     });
 }
 
-// MODIFICADO: para usar 'filteredIncompatibilidadeRows'
+
 function renderIncompatibilidadeTablePage() {
     const tbody = document.getElementById('incompat-table-body');
     const pageInfo = document.getElementById('incompat-page-info');
@@ -265,7 +351,119 @@ function renderIncompatibilidadeTablePage() {
     nextBtn.disabled = endIndex >= filteredIncompatibilidadeRows.length;
 }
 
-// --- Funções do Modal do Técnico ---
+// --- Funções do Modal 'Ver mais detalhes' ---
+
+function openAllTecnicosModal() {
+    const data = pageCache.data.incompatibilidade;
+    if (!data || !data.allTecnicosStats) {
+        alert("Os dados dos técnicos ainda não foram carregados.");
+        return;
+    }
+    
+    document.getElementById('modal-kpi-producao').textContent = data.kpis.totalProducao || 0;
+    document.getElementById('modal-kpi-problemas').textContent = data.kpis.totalProblemas || 0;
+    document.getElementById('modal-kpi-taxa').textContent = `${(data.kpis.taxaMediaProblemas || 0).toFixed(2)}%`;
+    document.getElementById('modal-kpi-tipos').textContent = data.kpis.totalTiposDeProblema || 0;
+
+    document.querySelectorAll('#all-tecnicos-modal .sort-btn').forEach(button => {
+        button.onclick = () => {
+            const sortBy = button.dataset.sort;
+            sortAllTecnicosTable(sortBy);
+        };
+    });
+    
+    allTecnicosSortCol = 'producao';
+    allTecnicosSortDir = 'desc';
+    sortAllTecnicosTable();
+
+    const modal = document.getElementById('all-tecnicos-modal');
+    const modalContent = document.getElementById('all-tecnicos-modal-content');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalContent.classList.remove('scale-95');
+    }, 10);
+}
+
+function closeAllTecnicosModal() {
+    const modal = document.getElementById('all-tecnicos-modal');
+    const modalContent = document.getElementById('all-tecnicos-modal-content');
+    modal.classList.add('opacity-0');
+    modalContent.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 300);
+}
+
+function sortAllTecnicosTable(sortBy) {
+    const data = pageCache.data.incompatibilidade;
+    if (!data || !data.allTecnicosStats) return;
+
+    if (sortBy === allTecnicosSortCol) {
+        allTecnicosSortDir = allTecnicosSortDir === 'asc' ? 'desc' : 'asc';
+    } else if (sortBy) {
+        allTecnicosSortCol = sortBy;
+        allTecnicosSortDir = (sortBy === 'tecnico') ? 'asc' : (sortBy === 'tempoMedioMontagem') ? 'asc' : 'desc';
+    }
+
+    const sortedData = [...data.allTecnicosStats].sort((a, b) => {
+        const valA = a[allTecnicosSortCol];
+        const valB = b[allTecnicosSortCol];
+        const direction = allTecnicosSortDir === 'asc' ? 1 : -1;
+
+        if (typeof valA === 'string') {
+            return valA.localeCompare(valB) * direction;
+        } else {
+            return (valA - valB) * direction;
+        }
+    });
+
+    renderAllTecnicosTableBody(sortedData);
+    updateAllTecnicosSortIcons();
+}
+
+function renderAllTecnicosTableBody(data) {
+    const tbody = document.getElementById('all-tecnicos-table-body');
+    tbody.innerHTML = '';
+    const kpis = pageCache.data.incompatibilidade.kpis;
+
+    data.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-200';
+        tr.innerHTML = `
+            <td class="p-3">
+                <span class="font-semibold text-slate-700 cursor-pointer hover:text-orange-500" onclick="openTecnicoModal('${item.tecnico.replace(/'/g, "\\'")}')">
+                    ${item.tecnico}
+                </span>
+            </td>
+            <td class="p-3 text-center">${item.producao}</td>
+            <td class="p-3 text-center">${item.problemas}</td>
+            <td class="p-3 text-center font-semibold ${item.porcentagem > kpis.taxaMediaProblemas ? 'text-red-600' : 'text-emerald-600'}">
+                ${item.porcentagem.toFixed(2)}%
+            </td>
+            <td class="p-3 text-center">${(item.tempoMedioMontagem).toFixed(2)}h</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function updateAllTecnicosSortIcons() {
+    const iconAsc = `<svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" /></svg>`;
+    const iconDesc = `<svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>`;
+    
+    document.querySelectorAll('#all-tecnicos-modal .sort-btn').forEach(button => {
+        const iconSpan = button.querySelector('.sort-icon');
+        if (button.dataset.sort === allTecnicosSortCol) {
+            iconSpan.innerHTML = allTecnicosSortDir === 'asc' ? iconAsc : iconDesc;
+        } else {
+            iconSpan.innerHTML = '';
+        }
+    });
+}
+
+// --- Funções do Modal do Técnico Individual ---
 
 function openTecnicoModal(tecnicoNome) {
     const modal = document.getElementById('tecnico-modal');
@@ -303,6 +501,7 @@ function onTecnicoDataReceived(data) {
     document.getElementById('tecnico-loader').style.display = 'none';
     document.getElementById('tecnico-dashboard-content').classList.remove('hidden');
 
+    document.getElementById('tecnico-kpi-producao').textContent = data.producaoCustomiza || 0;
     document.getElementById('tecnico-kpi-total').textContent = data.totalCasos || 0;
 
     drawTecnicoProblemasChart(data.problemas);
@@ -450,9 +649,7 @@ function renderTecnicoCasosPage() {
     nextBtn.disabled = endIndex >= allTecnicoCasos.length;
 }
 
-// --- INÍCIO: NOVAS FUNÇÕES DE EXPORTAÇÃO E CSV HELPER ---
 
-// Função para exportar os dados da tabela de incompatibilidades
 function exportIncompatibilidadeData() {
     if (filteredIncompatibilidadeRows.length === 0) {
         alert('Não há dados para exportar com os filtros atuais.');
@@ -461,7 +658,6 @@ function exportIncompatibilidadeData() {
 
     const headers = ['Data', 'Técnico', 'OS', 'Pedido', 'Produto', 'Tipo de Problema', 'Detalhe do Problema'];
     
-    // Mapeia os dados filtrados para o formato de array de arrays
     const dataToExport = filteredIncompatibilidadeRows.map(row => [
         row.data,
         row.tecnico,
@@ -479,7 +675,6 @@ function exportIncompatibilidadeData() {
     exportToCsvIncompat(`incompatibilidades_${startDate}_a_${endDate}.csv`, csvRows);
 }
 
-// Função auxiliar para criar e baixar o arquivo CSV
 function exportToCsvIncompat(filename, rows) {
     const processRow = (row) => {
         return row.map(val => {
@@ -489,7 +684,7 @@ function exportToCsvIncompat(filename, rows) {
                 result = '"' + result + '"'; 
             }
             return result;
-        }).join(';'); // Usando ponto e vírgula para compatibilidade com Excel no Brasil
+        }).join(';');
     };
 
     const csvContent = rows.map(processRow).join('\n');
@@ -506,6 +701,5 @@ function exportToCsvIncompat(filename, rows) {
         document.body.removeChild(link);
     }
 }
-// --- FIM: NOVAS FUNÇÕES DE EXPORTAÇÃO E CSV HELPER ---
-
 </script>
+
