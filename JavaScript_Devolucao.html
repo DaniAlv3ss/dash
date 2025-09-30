@@ -1,6 +1,6 @@
 <script>
 // ==================================================================
-// === LÓGICA DA PÁGINA DEVOLUÇÃO ===================================
+// === LÓGICA DA PÁGINA DEVOLUÇÃO (COM FILTRO INTERATIVO OTIMIZADO) =
 // ==================================================================
 
 // Variáveis de paginação para a tabela de produtos detalhada
@@ -17,6 +17,12 @@ const pedidosDevolucaoRowsPerPage = 20;
 // Variável para guardar dados do modal para exportação
 let currentMotivoDetailData = [];
 
+// NOVAS Variáveis para o filtro interativo do gráfico diário
+let fullDailyBreakdown = [];
+let originalDevolucaoPageData = null;
+let selectedDayFilter = null;
+let dailyReturnsChart; // Referência global para o objeto do gráfico
+
 function initializeDevolucaoPage() {
     google.charts.load('current', { 'packages': ['corechart'] });
     google.charts.setOnLoadCallback(() => {
@@ -32,6 +38,9 @@ function initializeDevolucaoPage() {
             document.getElementById('dev-cancelButton').addEventListener('click', (e) => toggleDatePopup(e, 'dev-date-range-popup'));
             document.getElementById('export-devolucao-motivos-btn').addEventListener('click', exportDevolucaoMotivosData);
             updateDevolucaoDateRangeDisplay();
+            
+            // Listener para o novo botão de limpar filtro
+            document.getElementById('devolucao-clear-filter-btn').addEventListener('click', clearDailyFilter);
             
             // Listeners da paginação da tabela de produtos
             document.getElementById('dev-detalhada-prev-page').addEventListener('click', () => {
@@ -80,13 +89,14 @@ function updateDevolucaoDateRangeDisplay() {
 function applyDevolucaoDateFilter() {
     document.getElementById('dev-date-range-popup').classList.remove('show');
     updateDevolucaoDateRangeDisplay();
-    pageCache.data.devolucao = null; 
+    pageCache.data.devolucaoPageData = null; 
+    pageCache.data.devolucaoBreakdown = null;
     fetchDevolucaoData();
 }
 
 function fetchDevolucaoData() {
-    if (pageCache.data.devolucao) {
-        onDevolucaoDataReceived(pageCache.data.devolucao);
+    if (pageCache.data.devolucaoPageData && pageCache.data.devolucaoBreakdown) {
+        onAllDevolucaoDataReceived(pageCache.data.devolucaoPageData, pageCache.data.devolucaoBreakdown);
         return;
     }
 
@@ -100,47 +110,73 @@ function fetchDevolucaoData() {
         end: document.getElementById('dev-endDate').value
     };
 
-    google.script.run
-        .withSuccessHandler(onDevolucaoDataReceived)
-        .withFailureHandler(error => displayError('Falha ao buscar dados de Devolução', error))
-        .getDevolucaoDataWithCache(dateRange);
+    const mainDataPromise = new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            .getDevolucaoPageDataWithCache(dateRange);
+    });
+
+    const breakdownDataPromise = new Promise((resolve, reject) => {
+        google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            .getDevolucaoDailyBreakdownWithCache(dateRange);
+    });
+
+    Promise.all([mainDataPromise, breakdownDataPromise])
+        .then(([mainData, breakdownData]) => {
+            onAllDevolucaoDataReceived(mainData, breakdownData);
+        })
+        .catch(error => {
+            displayError('Falha ao buscar dados completos de Devolução', error);
+        });
 }
 
-function onDevolucaoDataReceived(data) {
-    if (data.error) {
-        displayError('Erro ao processar dados de Devolução', { message: data.error });
+function onAllDevolucaoDataReceived(mainData, breakdownData) {
+    if (mainData.error) {
+        displayError('Erro ao carregar dados principais de Devolução', { message: mainData.error });
         return;
     }
-    pageCache.data.devolucao = data;
+     if (breakdownData.error) {
+        displayError('Erro ao carregar dados detalhados de Devolução', { message: breakdownData.error });
+        return;
+    }
+    
+    pageCache.data.devolucaoPageData = mainData;
+    pageCache.data.devolucaoBreakdown = breakdownData;
 
     const loader = document.getElementById('devolucao-loader');
     const content = document.getElementById('devolucao-content');
     if (loader) loader.style.display = 'none';
     if (content) content.style.visibility = 'visible';
 
-    // KPIs
-    document.getElementById('kpi-total-devolvido').textContent = (data.kpis.totalDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    document.getElementById('kpi-valor-cancelamento').textContent = (data.kpis.valorCancelamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    document.getElementById('kpi-devolucoes-unicas').textContent = data.kpis.devolucoesUnicas || 0;
-    document.getElementById('kpi-itens-devolvidos').textContent = data.kpis.totalItensDevolvidos || 0;
+    originalDevolucaoPageData = {
+        topMotivos: mainData.topMotivos,
+        totalDevolucoes: mainData.kpis.devolucoesUnicas
+    };
+    fullDailyBreakdown = breakdownData || [];
+    selectedDayFilter = null;
+    clearDailyFilter();
+
+    document.getElementById('kpi-total-devolvido').textContent = (mainData.kpis.totalDevolvido || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    document.getElementById('kpi-valor-cancelamento').textContent = (mainData.kpis.valorCancelamento || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    document.getElementById('kpi-devolucoes-unicas').textContent = mainData.kpis.devolucoesUnicas || 0;
+    document.getElementById('kpi-itens-devolvidos').textContent = mainData.kpis.totalItensDevolvidos || 0;
     
-    // Cards e Listas
-    renderMotivosCards('top-motivos-container', data.topMotivos, data.kpis.devolucoesUnicas);
-    renderTopList('top-categorias-container', data.topCategorias, '#059669', false);
-    renderTopList('top-fabricantes-container', data.topFabricantes, '#d97706');
+    renderMotivosCards('top-motivos-container', mainData.topMotivos, mainData.kpis.devolucoesUnicas);
+    renderTopList('top-categorias-container', mainData.topCategorias, '#059669', false);
+    renderTopList('top-fabricantes-container', mainData.topFabricantes, '#d97706');
 
-    // Gráficos
-    drawDevolucoesChart(data.devolucoesPorMes);
-    drawDevolucoesDiariasChart(data.devolucoesPorDia);
+    drawDevolucoesChart(mainData.devolucoesPorMes);
+    drawDevolucoesDiariasChart(mainData.devolucoesPorDia);
 
-    // Tabela de Produtos Detalhada
-    allDevolucaoProdutos = data.tabelaDetalhada.produtos || [];
-    allDevolucaoMotivos = data.tabelaDetalhada.motivos || [];
+    allDevolucaoProdutos = mainData.tabelaDetalhada.produtos || [];
+    allDevolucaoMotivos = mainData.tabelaDetalhada.motivos || [];
     devolucaoCurrentPage = 1;
     renderDevolucaoDetalhadaPage();
 
-    // Nova Tabela de Pedidos
-    allPedidosDevolucao = data.tabelaPedidos || [];
+    allPedidosDevolucao = mainData.tabelaPedidos || [];
     pedidosDevolucaoCurrentPage = 1;
     renderPedidosDevolucaoPage();
 }
@@ -150,8 +186,8 @@ function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
     if (!container) return;
     container.innerHTML = '';
 
-    if (!motivosData || motivosData.length === 0 || totalDevolucoes === 0) {
-        container.innerHTML = '<p class="text-sm text-slate-500">Nenhum motivo encontrado.</p>';
+    if (!motivosData || motivosData.length === 0) {
+        container.innerHTML = '<p class="text-sm text-slate-500 p-4 text-center">Nenhum motivo encontrado para a seleção.</p>';
         return;
     }
 
@@ -164,14 +200,15 @@ function renderMotivosCards(containerId, motivosData, totalDevolucoes) {
         const valorFormatado = (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         
         let trendIndicatorHtml = '';
-        const diff = quantidade - quantidadeAnterior;
-
-        if (diff > 0) {
-            trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-red-500" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" /></svg>+${diff}</span>`;
-        } else if (diff < 0) {
-            trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-emerald-500" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>${diff}</span>`;
-        } else {
-             trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-slate-400" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h14" /></svg></span>`;
+        if (!selectedDayFilter) {
+            const diff = quantidade - quantidadeAnterior;
+            if (diff > 0) {
+                trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-red-500" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" /></svg>+${diff}</span>`;
+            } else if (diff < 0) {
+                trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-emerald-500" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>${diff}</span>`;
+            } else {
+                trendIndicatorHtml = `<span class="flex items-center text-xs font-semibold text-slate-400" title="Comparado ao período anterior"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 12h14" /></svg></span>`;
+            }
         }
 
         const card = document.createElement('div');
@@ -290,26 +327,111 @@ function drawDevolucoesDiariasChart(chartData) {
         chartDiv.innerHTML = '<p class="text-center py-10 text-slate-500">Não há dados diários de devolução para o período.</p>';
         return;
     }
-    const dataArray = [ ['Dia', 'Devoluções (NF-e)', { role: 'annotation' }, { role: 'tooltip', type: 'string', p: { html: true } }] ];
-    chartData.slice(1).forEach(([day, value]) => {
-        const tooltipHtml = `<div style="padding:10px; font-family: Inter, sans-serif; font-size: 12px;"><div style="font-weight: bold; margin-bottom: 5px;">${day}</div><div><strong>${value}</strong> Devoluções (NF-e)</div></div>`;
-        dataArray.push([day, value, value.toString(), tooltipHtml]);
+
+    const dataArray = [
+        ['Dia', 'Total Devoluções', { role: 'annotation' }, 'Cancelamentos', { role: 'annotation' }, { role: 'id' }, { role: 'tooltip', type: 'string', p: { html: true } }]
+    ];
+    chartData.slice(1).forEach(([day, total, cancellations, dateId]) => {
+        const tooltipHtml = `
+            <div style="padding:10px; font-family: Inter, sans-serif; font-size: 12px; min-width: 150px;">
+                <div style="font-weight: bold; margin-bottom: 5px;">${day}</div>
+                <div style="display: flex; align-items: center; margin-top: 5px;"><span style="height: 10px; width: 10px; background-color: #00529e; border-radius: 50%; display: inline-block; margin-right: 8px;"></span><span><strong>${total}</strong> Devoluções Totais</span></div>
+                <div style="display: flex; align-items: center; margin-top: 5px;"><span style="height: 10px; width: 10px; background-color: #ff6000; border-radius: 50%; display: inline-block; margin-right: 8px;"></span><span><strong>${cancellations}</strong> Cancelamentos</span></div>
+            </div>`;
+        dataArray.push([day, total, total > 0 ? total.toString() : '', cancellations, cancellations > 0 ? cancellations.toString() : '', dateId, tooltipHtml]);
     });
+
     const dataTable = google.visualization.arrayToDataTable(dataArray);
     const textStyle = { color: '#475569', fontName: 'Inter', fontSize: 12 };
     const options = {
-        fontName: 'Inter', legend: { position: 'none' },
-        series: { 0: { color: '#ff6000', lineWidth: 3, pointSize: 7, pointShape: 'circle' } },
-        vAxis: { title: 'Devoluções (NF-e)', format: '0', textStyle: textStyle, titleTextStyle: { ...textStyle, color: '#1e293b', bold: true, italic: false }, gridlines: { color: '#e2e8f0', count: -1 }, viewWindow: { min: 0 } },
-        hAxis: { textStyle: textStyle, slantedText: chartData.length > 15, slantedTextAngle: 45 },
-        areaOpacity: 0.2, colors: ['#ff6000'], backgroundColor: { fill: 'transparent' },
-        chartArea: { left: 60, top: 40, width: '90%', height: '70%' },
-        curveType: 'function', animation: { startup: true, duration: 1000, easing: 'out' },
+        fontName: 'Inter',
+        legend: { position: 'top', alignment: 'center', textStyle: textStyle },
+        seriesType: 'bars',
+        series: {
+            0: { color: '#00529e', annotations: { textStyle: { color: '#1e293b', bold: true, auraColor: 'white' } } }, 
+            1: { type: 'line', color: '#ff6000', lineWidth: 3, pointSize: 6, pointShape: 'circle', annotations: { textStyle: { color: '#ff6000', bold: true, auraColor: 'white' } } }
+        },
+        vAxis: {
+            title: 'Quantidade (NF-e)', format: '0', textStyle: textStyle,
+            titleTextStyle: { ...textStyle, color: '#1e293b', bold: true, italic: false },
+            gridlines: { color: '#e2e8f0' }, viewWindow: { min: 0 }
+        },
+        hAxis: { textStyle: textStyle, slantedText: chartData.length > 20, slantedTextAngle: 45 },
+        backgroundColor: { fill: 'transparent' },
+        chartArea: { left: 60, top: 50, width: '90%', height: '70%' },
         tooltip: { isHtml: true, trigger: 'focus' },
-        annotations: { textStyle: { fontName: 'Inter', fontSize: 12, bold: true, color: '#a15c07' }, stem: { color: 'transparent' }, alwaysOutside: false }
+        animation: { startup: true, duration: 1000, easing: 'out' },
+        annotations: { alwaysOutside: true, textStyle: { fontSize: 11 } }
     };
-    const chart = new google.visualization.AreaChart(chartDiv);
-    chart.draw(dataTable, options);
+
+    dailyReturnsChart = new google.visualization.ComboChart(chartDiv);
+    google.visualization.events.addListener(dailyReturnsChart, 'select', onDailyChartSelect);
+    dailyReturnsChart.draw(dataTable, options);
+}
+
+function onDailyChartSelect() {
+    if (!dailyReturnsChart || !pageCache.data.devolucaoPageData) return;
+    const selection = dailyReturnsChart.getSelection();
+    if (selection.length > 0) {
+        const { row } = selection[0];
+        if (row !== null) {
+            const dataTable = google.visualization.arrayToDataTable(pageCache.data.devolucaoPageData.devolucoesPorDia);
+            const dateId = dataTable.getValue(row, 3);
+
+            if (selectedDayFilter === dateId) {
+                clearDailyFilter();
+            } else {
+                selectedDayFilter = dateId;
+                filterAndRerenderMotivos(dateId);
+            }
+        }
+    }
+}
+
+function clearDailyFilter() {
+    selectedDayFilter = null;
+    if (originalDevolucaoPageData) {
+        renderMotivosCards('top-motivos-container', originalDevolucaoPageData.topMotivos, originalDevolucaoPageData.totalDevolucoes);
+    }
+    document.getElementById('devolucao-motivo-filter-status').style.display = 'none';
+    if(dailyReturnsChart) dailyReturnsChart.setSelection([]);
+}
+
+function filterAndRerenderMotivos(date) {
+    if (!date) {
+        clearDailyFilter();
+        return;
+    }
+
+    const returnsForDay = fullDailyBreakdown.filter(item => item.d === date);
+    const motivosDoDia = {};
+    const nfsUnicasDoDia = new Set();
+
+    returnsForDay.forEach(item => {
+        const motivo = item.m;
+        if (!motivosDoDia[motivo]) {
+            motivosDoDia[motivo] = { nfs: new Set(), valor: 0 };
+        }
+        if (item.nf) {
+            motivosDoDia[motivo].nfs.add(item.nf);
+            nfsUnicasDoDia.add(item.nf);
+        }
+        motivosDoDia[motivo].valor += item.v;
+    });
+    
+    const topMotivosDoDia = Object.entries(motivosDoDia).map(([motivo, data]) => {
+        const displayMotivo = motivo.charAt(0).toUpperCase() + motivo.slice(1);
+        return [displayMotivo, { quantidade: data.nfs.size, valor: data.valor, quantidadeAnterior: 0 }];
+    }).sort(([, a], [, b]) => b.quantidade - a.quantidade).slice(0, 4);
+
+    const totalDevolucoesDia = nfsUnicasDoDia.size;
+    renderMotivosCards('top-motivos-container', topMotivosDoDia, totalDevolucoesDia);
+
+    const statusContainer = document.getElementById('devolucao-motivo-filter-status');
+    const statusText = document.getElementById('devolucao-motivo-filter-text');
+    const [year, month, day] = date.split('-');
+    statusText.textContent = `Filtrando por: ${day}/${month}/${year}`;
+    statusContainer.style.display = 'flex';
 }
 
 function renderDevolucaoDetalhadaPage() {
@@ -354,8 +476,6 @@ function renderDevolucaoDetalhadaTable(detalhes) {
     });
     tbody.innerHTML = bodyHtml;
 }
-
-// --- Funções da Nova Tabela de Pedidos e Modal ---
 
 function renderPedidosDevolucaoPage() {
     const tbody = document.getElementById('pedidos-devolucao-tbody');
@@ -411,7 +531,6 @@ function openItensDevolvidosModal(pedidoId) {
     const listContainer = document.getElementById('itens-modal-list');
     const totalValueEl = document.getElementById('itens-modal-total');
     
-    // Mostra o estado de carregamento
     listContainer.innerHTML = '<tr><td colspan="4" class="p-4 text-center">Carregando itens...</td></tr>';
     totalValueEl.textContent = 'Calculando...';
 
@@ -422,7 +541,6 @@ function openItensDevolvidosModal(pedidoId) {
         modalContent.classList.remove('scale-95');
     }, 10);
 
-    // Chama o backend para buscar os dados dos itens
     google.script.run
         .withSuccessHandler(function(items) {
             if (items.error) {
@@ -470,7 +588,6 @@ function closeItensDevolvidosModal() {
     }, 300);
 }
 
-// REFEITA: Função para exportar os dados detalhados de devoluções com motivos.
 function exportDevolucaoMotivosData() {
     const button = document.getElementById('export-devolucao-motivos-btn');
     const originalText = button.innerHTML;
@@ -522,7 +639,6 @@ function exportDevolucaoMotivosData() {
         .getDevolucaoExportDataWithCache(dateRange);
 }
 
-// Função auxiliar para criar e baixar o arquivo CSV
 function exportToCsv(filename, rows) {
     if (!rows || rows.length === 0) { 
         alert('Não há dados para exportar.'); 
@@ -534,7 +650,6 @@ function exportToCsv(filename, rows) {
             if (val instanceof Date) { 
                 innerValue = val.toLocaleString('pt-BR'); 
             }
-            // Trata valores monetários que podem estar como números
             if (typeof val === 'number') {
                 innerValue = String(val).replace('.', ',');
             }
@@ -543,7 +658,7 @@ function exportToCsv(filename, rows) {
                 result = '"' + result + '"'; 
             }
             return result;
-        }).join(';'); // Usando ponto e vírgula como separador para melhor compatibilidade com Excel no Brasil
+        }).join(';');
     };
     const csvContent = rows.map(processRow).join('\n');
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -559,8 +674,6 @@ function exportToCsv(filename, rows) {
     }
 }
 
-// --- NOVAS FUNÇÕES PARA O MODAL DE DETALHES DO MOTIVO ---
-
 function togglePedidoDetails(pedidoId) {
     const detailRows = document.querySelectorAll(`.detail-row-${pedidoId}`);
     const icon = document.getElementById(`icon-${pedidoId}`);
@@ -572,8 +685,9 @@ function togglePedidoDetails(pedidoId) {
     }
 }
 
+// MODIFICADO: Passa o filtro de dia (se ativo) para a função do backend
 function openMotivoDetailModal(motivo) {
-    currentMotivoDetailData = []; // Limpa dados antigos
+    currentMotivoDetailData = [];
     const modal = document.getElementById('motivo-detail-modal');
     const modalContent = document.getElementById('motivo-detail-modal-content');
     document.getElementById('motivo-detail-title').textContent = `Pedidos: ${motivo}`;
@@ -597,6 +711,7 @@ function openMotivoDetailModal(motivo) {
         end: document.getElementById('dev-endDate').value
     };
 
+    // Passa 'selectedDayFilter' como terceiro argumento. Será nulo se nenhum dia estiver filtrado.
     google.script.run
         .withSuccessHandler(function(pedidos) {
             document.getElementById('motivo-detail-loader').style.display = 'none';
@@ -610,7 +725,7 @@ function openMotivoDetailModal(motivo) {
                 return;
             }
             
-            currentMotivoDetailData = pedidos; // Salva os dados para exportação
+            currentMotivoDetailData = pedidos;
             if (!pedidos || pedidos.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" class="p-3 text-center text-slate-500">Nenhum pedido encontrado para este motivo no período.</td></tr>';
                 exportBtn.disabled = true;
@@ -671,7 +786,7 @@ function openMotivoDetailModal(motivo) {
             const tbody = document.getElementById('motivo-detail-table-body');
             tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-500">Falha ao buscar detalhes: ${error.message}</td></tr>`;
         })
-        .getPedidosPorMotivoWithCache(dateRange, motivo);
+        .getPedidosPorMotivoWithCache(dateRange, motivo, selectedDayFilter);
 }
 
 function exportMotivoDetails(motivo) {
