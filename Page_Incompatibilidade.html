@@ -24,7 +24,7 @@
 
     <!-- Container principal para garantir o layout em coluna -->
     <div class="flex flex-col gap-6">
-        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div class="bg-white p-6 rounded-xl shadow-sm">
                 <h4 class="text-slate-500 font-semibold">Total de Casos</h4>
                 <p id="kpi-total-casos" class="text-4xl font-bold text-slate-800 mt-2">0</p>
@@ -37,12 +37,25 @@
                 <h4 class="text-slate-500 font-semibold">Tempo Médio de Tratativa</h4>
                 <p id="kpi-tempo-medio" class="text-4xl font-bold text-blue-600 mt-2">0h</p>
             </div>
+            <div class="bg-white p-6 rounded-xl shadow-sm">
+                <h4 class="text-slate-500 font-semibold">Tempo Médio de Montagem</h4>
+                <p id="kpi-tempo-medio-montagem" class="text-4xl font-bold text-green-600 mt-2">0h</p>
+            </div>
+        </section>
+
+        <!-- GRÁFICO DIÁRIO DE PRODUÇÃO VS PROBLEMAS -->
+        <section class="bg-white p-6 rounded-xl shadow-sm">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Máquinas Montadas por Dia vs Problemas</h3>
+            <div id="daily-production-problems-chart" style="width: 100%; height: 350px;"></div>
         </section>
 
         <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-             <div class="bg-white p-6 rounded-xl shadow-sm">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Técnicos</h3>
+             <div class="bg-white p-6 rounded-xl shadow-sm relative">
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Técnicos (Taxa de Problemas)</h3>
                 <div id="top-tecnicos-container" class="space-y-3"></div>
+                <button id="ver-mais-tecnicos-btn" class="absolute bottom-4 right-4 text-sm font-semibold text-orange-600 hover:text-orange-700">
+                    Ver mais detalhes &rarr;
+                </button>
             </div>
              <div class="bg-white p-6 rounded-xl shadow-sm">
                 <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Tipos de Problema</h3>
@@ -57,7 +70,6 @@
         <section class="bg-white p-6 rounded-xl shadow-sm">
             <h3 class="text-lg font-semibold text-slate-800 mb-4">Registros de Incompatibilidade</h3>
             
-            <!-- INÍCIO: NOVOS FILTROS E BOTÃO DE EXPORTAR -->
             <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                 <input type="text" id="incompat-search-input" placeholder="Filtrar por Técnico, Pedido ou OS..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-full md:w-64">
                 
@@ -70,7 +82,6 @@
                         <div id="incompat-problem-filter-popup" class="date-popup p-4" style="min-width: 250px;">
                             <h4 class="text-sm font-semibold text-slate-800 mb-3">Tipos de Problema</h4>
                             <div id="incompat-problem-filter-options" class="space-y-2 max-h-60 overflow-y-auto pr-2">
-                                <!-- Checkboxes serão inseridos aqui via JS -->
                             </div>
                         </div>
                     </div>
@@ -83,7 +94,6 @@
                     </button>
                 </div>
             </div>
-            <!-- FIM: NOVOS FILTROS E BOTÃO DE EXPORTAR -->
 
              <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left">
@@ -112,8 +122,8 @@
         </section>
     </div>
 
-    <!-- MODAL DO TÉCNICO -->
-    <div id="tecnico-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden items-center justify-center p-4 transition-opacity duration-300 opacity-0" onclick="closeTecnicoModal()">
+    <!-- MODAL DO TÉCNICO INDIVIDUAL -->
+    <div id="tecnico-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[70] hidden items-center justify-center p-4 transition-opacity duration-300 opacity-0" onclick="closeTecnicoModal()">
         <div id="tecnico-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center p-4 border-b border-slate-200 bg-white rounded-t-xl flex-shrink-0">
                 <h2 id="tecnico-modal-title" class="text-xl font-semibold text-slate-800">Mini Dashboard do Técnico</h2>
@@ -124,13 +134,16 @@
                     <p class="text-slate-500">Carregando dados do técnico...</p>
                 </div>
                 <div id="tecnico-dashboard-content" class="hidden space-y-6">
-                    <!-- KPI -->
-                    <div class="bg-white p-6 rounded-xl shadow-sm text-center">
-                        <h4 class="text-slate-500 font-semibold">Total de Casos no Período</h4>
-                        <p id="tecnico-kpi-total" class="text-5xl font-bold text-slate-800 mt-2">0</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-sm text-center">
+                            <h4 class="text-slate-500 font-semibold">Produção (Montagem/Qualidade)</h4>
+                            <p id="tecnico-kpi-producao" class="text-5xl font-bold text-slate-800 mt-2">0</p>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-sm text-center">
+                            <h4 class="text-slate-500 font-semibold">Total de Casos no Período</h4>
+                            <p id="tecnico-kpi-total" class="text-5xl font-bold text-orange-600 mt-2">0</p>
+                        </div>
                     </div>
-
-                    <!-- Gráficos -->
                     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
                         <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
                             <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Tipos de Problema Registrados</h3>
@@ -145,7 +158,6 @@
                         <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Frequência Diária (no período)</h3>
                         <div id="tecnico-diaria-chart" style="width: 100%; height: 350px;"></div>
                     </div>
-                     <!-- Tabela de Casos do Técnico -->
                     <div class="bg-white p-6 rounded-xl shadow-sm">
                         <h3 class="text-lg font-semibold text-slate-800 mb-4">Casos Registrados no Período</h3>
                         <div class="overflow-x-auto">
@@ -161,7 +173,6 @@
                                     </tr>
                                 </thead>
                                 <tbody id="tecnico-casos-table-body" class="text-slate-700">
-                                    <!-- Linhas da tabela serão injetadas aqui -->
                                 </tbody>
                             </table>
                         </div>
@@ -177,4 +188,77 @@
             </div>
         </div>
     </div>
+
+    <!-- MODAL 'VER MAIS DETALHES' PARA TODOS OS TÉCNICOS -->
+    <div id="all-tecnicos-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden items-center justify-center p-4 transition-opacity duration-300 opacity-0" onclick="closeAllTecnicosModal()">
+        <div id="all-tecnicos-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center p-4 border-b border-slate-200 bg-white rounded-t-xl flex-shrink-0">
+                <h2 class="text-xl font-semibold text-slate-800">Análise de Performance dos Técnicos</h2>
+                <button onclick="closeAllTecnicosModal()" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
+            </div>
+            <div id="all-tecnicos-modal-body" class="p-6 overflow-y-auto">
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-white p-4 rounded-lg shadow-sm text-center">
+                        <h4 class="text-sm font-semibold text-slate-500">Produção Total</h4>
+                        <p id="modal-kpi-producao" class="text-3xl font-bold text-slate-800 mt-1">0</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm text-center">
+                        <h4 class="text-sm font-semibold text-slate-500">Problemas Totais</h4>
+                        <p id="modal-kpi-problemas" class="text-3xl font-bold text-orange-600 mt-1">0</p>
+                    </div>
+                     <div class="bg-white p-4 rounded-lg shadow-sm text-center">
+                        <h4 class="text-sm font-semibold text-slate-500">Taxa Média de Problemas</h4>
+                        <p id="modal-kpi-taxa" class="text-3xl font-bold text-red-600 mt-1">0%</p>
+                    </div>
+                     <div class="bg-white p-4 rounded-lg shadow-sm text-center">
+                        <h4 class="text-sm font-semibold text-slate-500">Tipos de Problema</h4>
+                        <p id="modal-kpi-tipos" class="text-3xl font-bold text-slate-800 mt-1">0</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-sm overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-50 text-slate-600 uppercase">
+                            <tr>
+                                <th class="p-3">
+                                    <button data-sort="tecnico" class="sort-btn flex items-center gap-1 w-full text-left font-medium text-xs">
+                                        <span>Técnico</span>
+                                        <span class="sort-icon"></span>
+                                    </button>
+                                </th>
+                                <th class="p-3">
+                                    <button data-sort="producao" class="sort-btn flex items-center gap-1 w-full justify-center font-medium text-xs">
+                                        <span>Produção</span>
+                                        <span class="sort-icon"></span>
+                                    </button>
+                                </th>
+                                <th class="p-3">
+                                    <button data-sort="problemas" class="sort-btn flex items-center gap-1 w-full justify-center font-medium text-xs">
+                                        <span>Problemas</span>
+                                        <span class="sort-icon"></span>
+                                    </button>
+                                </th>
+                                <th class="p-3">
+                                    <button data-sort="porcentagem" class="sort-btn flex items-center gap-1 w-full justify-center font-medium text-xs">
+                                        <span>Taxa de Problemas</span>
+                                        <span class="sort-icon"></span>
+                                    </button>
+                                </th>
+                                <th class="p-3">
+                                    <button data-sort="tempoMedioMontagem" class="sort-btn flex items-center gap-1 w-full justify-center font-medium text-xs">
+                                        <span>T. Médio Montagem</span>
+                                        <span class="sort-icon"></span>
+                                    </button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="all-tecnicos-table-body" class="text-slate-700">
+                            <!-- Conteúdo gerado via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
