@@ -1,6 +1,6 @@
 /**
  * Contém todas as funções do lado do servidor para a página do Dashboard de Calltech.
- * OTIMIZADO: A função principal agora pré-carrega os históricos dos clientes relevantes.
+ * @version 1.3 - Dicionário de Causa Raiz aprimorado com termos técnicos específicos.
  */
 function getCalltechData(dateRange) {
   try {
@@ -26,7 +26,7 @@ function getCalltechData(dateRange) {
     const npsMap = new Map();
     getUniqueValidRows(allNPSData, INDICES_NPS.PEDIDO_ID, INDICES_NPS.CLASSIFICACAO)
       .forEach(row => {
-        const pedidoId = row[INDICES_NPS.PEDIDO_ID]?.trim();
+        const pedidoId = row[INDICES_NPS.PEDIDO_ID]?.trim() || row[0]?.trim(); // Fallback para ID da coluna A
         const classification = row[INDICES_NPS.CLASSIFICACAO]?.toString().toLowerCase();
         if (pedidoId && classification) {
             npsMap.set(pedidoId, classification);
@@ -346,6 +346,145 @@ function getDailyFlowChartData(dateRange) {
   }
 }
 
+/**
+ * Busca dados para o gráfico de defeitos, calcula correlações e analisa causa raiz.
+ */
+function getDefectsData(dateRange) {
+  try {
+    const planilhaCalltech = SpreadsheetApp.openById(ID_PLANILHA_CALLTECH);
+    const abaAtendimento = planilhaCalltech.getSheetByName(NOME_ABA_ATENDIMENTO);
+    const abaDefeitos = planilhaCalltech.getSheetByName(NOME_ABA_DEFEITOS);
+
+    if (!abaAtendimento || !abaDefeitos) {
+      throw new Error("Aba 'Forms' ou 'Dim_Defeitos' não encontrada.");
+    }
+
+    // DICIONÁRIO DE CAUSA RAIZ APRIMORADO
+    const rootCauseDictionary = {
+        'Conexão/Montagem': ['cabo solto', 'mal encaixado', 'reconectado', 'não conectado', 'flat cable', 'sata frouxo', 'painel frontal', 'mal conectado', 'pino torto', 'sem contato'],
+        'Software/BIOS/Driver': ['atualizar bios', 'reinstalar driver', 'conflito de software', 'formatação', 'atualização windows', 'xmp', 'perfil xmp', 'configuração de bios', 'loop de reparo', 'tela azul', 'bsod', 'corrompido'],
+        'Falha de Componente': ['troca de peça', 'componente substituído', 'memória com defeito', 'gpu artefato', 'artefatos', 'cpu com defeito', 'fonte não arma', 'ssd não reconhecido', 'hd com bad block', 'placa-mãe em curto', 'vrm', 'curto-circuito'],
+        'Superaquecimento/Térmica': ['superaquecimento', 'temperatura alta', 'thermal throttling', 'pasta térmica', 'air flow', 'fluxo de ar', 'cooler mal encaixado'],
+        'Dano Físico': ['amassado', 'quebrado', 'riscado', 'trincado', 'arranhado', 'gabinete danificado', 'acrílico quebrado', 'vidro quebrado'],
+        'Incompatibilidade': ['incompatível', 'incompatibilidade', 'não suporta', 'conflito qvl', 'frequência ram'],
+    };
+
+
+    // 1. Criar um mapa de pedidos que estão dentro do período de data, incluindo relatos e observações.
+    const pedidosNoPeriodo = new Map();
+    const allAtendimentoData = abaAtendimento.getRange(2, 1, abaAtendimento.getLastRow() - 1, abaAtendimento.getLastColumn()).getValues(); // .getValues() para preservar os tipos de dados
+
+    allAtendimentoData.forEach(row => {
+      const dateValue = row[INDICES_ATENDIMENTO.DATA_ATENDIMENTO];
+      if (!dateValue || !(dateValue instanceof Date)) return;
+      
+      const atendimentoDateISO = Utilities.formatDate(dateValue, "GMT-3", "yyyy-MM-dd");
+      if (atendimentoDateISO >= dateRange.start && atendimentoDateISO <= dateRange.end) {
+        const pedidoId = row[INDICES_ATENDIMENTO.PEDIDO_ID]?.toString().trim();
+        if (pedidoId) {
+          pedidosNoPeriodo.set(pedidoId, {
+            relato: (row[INDICES_ATENDIMENTO.RELATO_CLIENTE] || '').toLowerCase(),
+            observacao: (row[INDICES_ATENDIMENTO.DEFEITO] || '').toLowerCase() 
+          });
+        }
+      }
+    });
+
+    // 2. Agrupar defeitos por pedido e analisar causa raiz.
+    const contagemDefeitos = {};
+    const defeitosPorPedido = {};
+    const allDefeitosData = abaDefeitos.getRange(2, 1, abaDefeitos.getLastRow() - 1, 2).getDisplayValues();
+    const rootCauseAnalysis = {};
+    const clientTerms = {};
+
+    allDefeitosData.forEach(row => {
+      const pedidoId = row[0]?.toString().trim();
+      const defeito = (row[1] || "Não especificado").trim();
+      const infoPedido = pedidosNoPeriodo.get(pedidoId);
+
+      if (pedidoId && infoPedido && defeito !== "Não especificado" && defeito !== "") {
+          contagemDefeitos[defeito] = (contagemDefeitos[defeito] || 0) + 1;
+          
+          if (!defeitosPorPedido[pedidoId]) defeitosPorPedido[pedidoId] = [];
+          defeitosPorPedido[pedidoId].push(defeito);
+
+          // Análise de Causa Raiz
+          if (!rootCauseAnalysis[defeito]) rootCauseAnalysis[defeito] = {};
+          let causeFound = false;
+          const textoObservacao = infoPedido.observacao;
+          for(const cause in rootCauseDictionary){
+              for(const keyword of rootCauseDictionary[cause]){
+                  if(textoObservacao.includes(keyword)){
+                      rootCauseAnalysis[defeito][cause] = (rootCauseAnalysis[defeito][cause] || 0) + 1;
+                      causeFound = true;
+                      break; 
+                  }
+              }
+              if(causeFound) break; // Para na primeira categoria encontrada para evitar contagem dupla
+          }
+          if(!causeFound) rootCauseAnalysis[defeito]['Outros'] = (rootCauseAnalysis[defeito]['Outros'] || 0) + 1;
+
+          // Análise de Termos do Cliente
+          if (!clientTerms[defeito]) clientTerms[defeito] = {};
+          const palavrasRelato = infoPedido.relato.match(/\b(\w+)\b/g) || [];
+          palavrasRelato.forEach(palavra => {
+            if(palavra.length > 3) { // Ignora palavras pequenas
+              clientTerms[defeito][palavra] = (clientTerms[defeito][palavra] || 0) + 1;
+            }
+          });
+      }
+    });
+
+    // 3. Calcular correlações
+    const correlationData = {};
+    for (const pedido in defeitosPorPedido) {
+        const defeitos = [...new Set(defeitosPorPedido[pedido])]; // Garante defeitos únicos por pedido
+        if (defeitos.length > 1) {
+            for (let i = 0; i < defeitos.length; i++) {
+                for (let j = i + 1; j < defeitos.length; j++) {
+                    const d1 = defeitos[i];
+                    const d2 = defeitos[j];
+
+                    if (!correlationData[d1]) correlationData[d1] = {};
+                    correlationData[d1][d2] = (correlationData[d1][d2] || 0) + 1;
+
+                    if (!correlationData[d2]) correlationData[d2] = {};
+                    correlationData[d2][d1] = (correlationData[d2][d1] || 0) + 1;
+                }
+            }
+        }
+    }
+
+    // 4. Formatar dados para o front-end.
+    const chartData = [['Defeito', 'Quantidade']];
+    const sortedDefeitos = Object.entries(contagemDefeitos).sort(([, a], [, b]) => b - a);
+    
+    sortedDefeitos.forEach(([defeito, quantidade]) => {
+      chartData.push([defeito, quantidade]);
+    });
+
+    // Formatar termos do cliente para enviar apenas o top 10
+    for(const defeito in clientTerms){
+      clientTerms[defeito] = Object.entries(clientTerms[defeito])
+                                    .sort(([,a],[,b]) => b-a)
+                                    .slice(0, 10);
+    }
+
+
+    return {
+      defectsCount: chartData,
+      correlationData: correlationData,
+      rootCauseAnalysis: rootCauseAnalysis,
+      clientTerms: clientTerms
+    };
+
+  } catch (e) {
+    Logger.log(`Erro fatal em getDefectsData: ${e.stack}`);
+    return { defectsCount: [['Defeito', 'Quantidade']], correlationData: {}, rootCauseAnalysis: {}, clientTerms: {} };
+  }
+}
+
+
 // --- VERSÕES COM CACHE PARA SEREM CHAMADAS PELO CLIENTE ---
 
 function getCalltechDataWithCache(dateRange) {
@@ -356,5 +495,10 @@ function getCalltechDataWithCache(dateRange) {
 function getDailyFlowChartDataWithCache(dateRange) {
   const cacheKey = `daily_flow_chart_data_v2_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDailyFlowChartData, [dateRange]);
+}
+
+function getDefectsDataWithCache(dateRange) {
+  const cacheKey = `defects_data_v4_rootcause_${dateRange.start}_${dateRange.end}`;
+  return getOrSetCache(cacheKey, getDefectsData, [dateRange]);
 }
 
