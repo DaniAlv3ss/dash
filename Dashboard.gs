@@ -749,4 +749,3 @@ function getMotivesHeatmapDataWithCache(filters) {
   const cacheKey = `heatmap_data_v4_${filters.referenceMonth}_${classificationsKey}`;
   return getOrSetCache(cacheKey, getMotivesHeatmapData, [filters]);
 }
-
