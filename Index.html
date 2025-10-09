@@ -86,6 +86,13 @@
                 </svg>
                 <span>Incompatibilidade</span>
             </a>
+            <a href="#" onclick="event.preventDefault(); loadPage('AnaliseRegional', this)" class="nav-link flex items-center py-3 px-4 text-slate-300 hover:bg-slate-700 hover:text-white rounded-md mx-2 transition-colors duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>Análise Regional</span>
+            </a>
         </nav>
     </div>
 
@@ -146,7 +153,8 @@
                 'Dashboard': 'Dashboard de NPS - Monte o Seu PC',
                 'Calltech': 'Dashboard de Atendimento - Calltech',
                 'Devolucao': 'Dashboard de Devoluções - Monte o Seu PC',
-                'Incompatibilidade': 'Dashboard de Incompatibilidades'
+                'Incompatibilidade': 'Dashboard de Incompatibilidades',
+                'AnaliseRegional': 'Análise Regional'
             };
             document.getElementById('page-title').textContent = pageTitles[pageName] || 'Dashboard';
             
@@ -183,6 +191,8 @@
                 initializeDevolucaoPage();
             } else if (pageName === 'Incompatibilidade') {
                 initializeIncompatibilidadePage();
+            } else if (pageName === 'AnaliseRegional') {
+                initializeAnaliseRegionalPage();
             }
         }
 
@@ -230,6 +240,7 @@
     <?!= include('JavaScript_Calltech'); ?>
     <?!= include('JavaScript_Devolucao'); ?>
     <?!= include('JavaScript_Incompatibilidade'); ?>
+    <?!= include('JavaScript_AnaliseRegional'); ?>
 
 </body>
 </html>
