@@ -1,6 +1,6 @@
 /**
  * Script Principal para servir o aplicativo da web e conter funções/constantes globais.
- * @version 2.2 - Revisão completa com Cache e Pré-carregamento de Dados
+ * @version 2.4 - Adicionada constante para a aba de defeitos.
  */
 
 // === CENTRAL DE CONFIGURAÇÕES GLOBAIS ===
@@ -17,9 +17,11 @@ const NOME_ABA_ATENDIMENTO = "Forms";
 const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager";
 const NOME_ABA_DEVOLUCAO = "Base Devolução";
+const NOME_ABA_DEFEITOS = "Dim_Defeitos";
 
 // Índices de colunas (mantidos aqui para referência global, se necessário)
 const INDICES_NPS = {
+  // A Coluna A (ID da avaliação) tem índice 0
   DATA_AVALIACAO: 2,  // Coluna C
   CLASSIFICACAO: 5,   // Coluna F
   CLIENTE: 12,        // Coluna M
@@ -120,28 +122,43 @@ function include(filename) {
 
 
 /**
- * FUNÇÃO UTILITÁRIA GLOBAL: Filtra linhas de dados para manter apenas a mais recente por ID de pedido.
+ * FUNÇÃO UTILITÁRIA GLOBAL: Filtra linhas de dados para manter apenas a mais recente por ID único (Pedido ou ID da avaliação).
  * Utilizada por ambos os dashboards para garantir dados únicos.
  * @param {Array<Array<any>>} dados - O conjunto de dados a ser filtrado.
- * @param {number} idIndex - O índice da coluna que contém o ID do pedido.
+ * @param {number} idIndex - O índice da coluna que contém o ID do pedido (identificador principal).
  * @param {number} classIndex - O índice da coluna de classificação (para validação).
  * @returns {Array<Array<any>>} Um array com as linhas únicas.
  */
 function getUniqueValidRows(dados, idIndex, classIndex) {
-  const pedidosProcessados = new Map();
+  const processedIds = new Map();
   const validClassifications = ['promotor', 'detrator', 'neutro'];
-  
+  const fallbackIdIndex = 0; // Coluna A (ID da avaliação)
+
   // Itera de trás para frente para que a primeira ocorrência (a mais recente) seja a que fica.
   for (let i = dados.length - 1; i >= 0; i--) {
     const linha = dados[i];
-    const pedidoId = linha[idIndex]?.toString().trim();
     const classificacao = linha[classIndex]?.toString().toLowerCase();
+    
+    // Ignora linhas sem uma classificação válida
+    if (!validClassifications.includes(classificacao)) {
+      continue;
+    }
 
-    if (pedidoId && validClassifications.includes(classificacao)) {
-      if (!pedidosProcessados.has(pedidoId)) {
-        pedidosProcessados.set(pedidoId, linha);
+    // Tenta usar o ID do pedido primeiro
+    let uniqueId = linha[idIndex]?.toString().trim();
+
+    // Se não houver ID do pedido, usa o ID da coluna A como fallback
+    if (!uniqueId || uniqueId === "") {
+      uniqueId = linha[fallbackIdIndex]?.toString().trim();
+    }
+    
+    // Se um ID único foi encontrado (seja do pedido ou fallback) e ainda não foi processado...
+    if (uniqueId) {
+      if (!processedIds.has(uniqueId)) {
+        processedIds.set(uniqueId, linha);
       }
     }
   }
-  return Array.from(pedidosProcessados.values());
+  return Array.from(processedIds.values());
 }
+
