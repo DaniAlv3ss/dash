@@ -7,6 +7,7 @@ let filteredCalltechTickets = [];
 let calltechCurrentPage = 1;
 const calltechRowsPerPage = 50;
 let filterTimeout;
+let allDefectsData = null; // Armazena todos os dados de defeitos
 
 function initializeCalltechPage() {
     try {
@@ -58,10 +59,12 @@ function initializeCalltechPage() {
         // Busca os dados iniciais
         fetchCalltechData();
         fetchAndDrawFlowChart();
+        fetchAndProcessDefectsData();
 
         // Lógica dos modais
         document.getElementById('close-clientes-modal-btn').addEventListener('click', closeClientesModal);
         document.getElementById('clientes-modal').addEventListener('click', closeClientesModal);
+        document.getElementById('see-more-defects-btn').addEventListener('click', openDefectsModal);
 
     } catch (error) {
         displayError("Erro ao inicializar o Dashboard de Calltech", error);
@@ -84,7 +87,9 @@ function applyCalltechDateFilter() {
     document.getElementById('ct-date-range-popup').classList.remove('show');
     updateCalltechDateRangeDisplay('main');
     pageCache.data.calltech = null;
+    pageCache.data.calltechDefects = null; // Limpa o cache do novo gráfico
     fetchCalltechData();
+    fetchAndProcessDefectsData(); // Atualiza o novo gráfico
 }
 
 function applyFlowChartDateFilter() {
@@ -112,7 +117,7 @@ function fetchCalltechData() {
     google.script.run
         .withSuccessHandler(onCalltechDataReceived)
         .withFailureHandler(error => displayError('Falha ao buscar dados de Calltech', error))
-        .getCalltechData(dateRange);
+        .getCalltechDataWithCache(dateRange);
 }
 
 function fetchAndDrawFlowChart() {
@@ -142,7 +147,7 @@ function fetchAndDrawFlowChart() {
              }
              console.error("Falha ao buscar dados do gráfico:", error);
         })
-        .getDailyFlowChartData(dateRange);
+        .getDailyFlowChartDataWithCache(dateRange);
 }
 
 function onCalltechDataReceived(data) {
@@ -502,4 +507,260 @@ function createHistoryItem(item, index, totalItems){
         </div>
     `;
 }
+
+// --- FUNÇÕES MODIFICADAS E NOVAS PARA O GRÁFICO E MODAL DE DEFEITOS ---
+function fetchAndProcessDefectsData() {
+    if (pageCache.data.calltechDefects) {
+        onDefectsDataReceived(pageCache.data.calltechDefects);
+        return;
+    }
+
+    const loader = document.getElementById('defects_card_loader');
+    const content = document.getElementById('defects_card_content');
+    if(loader) loader.style.display = 'block';
+    if(content) content.classList.add('hidden');
+
+    const dateRange = {
+        start: document.getElementById('ct-startDate').value,
+        end: document.getElementById('ct-endDate').value
+    };
+
+    google.script.run
+        .withSuccessHandler(onDefectsDataReceived)
+        .withFailureHandler(error => {
+             if (loader) {
+                loader.innerHTML = '<p class="text-center text-red-500 pt-10">Falha ao carregar a análise de defeitos.</p>';
+             }
+             console.error("Falha ao buscar dados de defeitos:", error);
+        })
+        .getDefectsDataWithCache(dateRange);
+}
+
+function onDefectsDataReceived(data){
+    pageCache.data.calltechDefects = data;
+    allDefectsData = data;
+    renderDefectsAnalysis(data.defectsCount);
+}
+
+function renderDefectsAnalysis(chartData) {
+    const loader = document.getElementById('defects_card_loader');
+    const content = document.getElementById('defects_card_content');
+    const seeMoreBtn = document.getElementById('see-more-defects-btn');
+    const chartContainer = document.getElementById('defects_chart');
+    const listContainer = document.getElementById('defects_list_container');
+
+    if (!chartContainer || !loader || !content || !seeMoreBtn || !listContainer) return;
+
+    if (!chartData || chartData.length <= 1) {
+        loader.innerHTML = '<p class="text-center text-slate-500 pt-10">Não há dados de defeitos para o período.</p>';
+        loader.style.display = 'block';
+        content.classList.add('hidden');
+        seeMoreBtn.style.display = 'none';
+        return;
+    }
+    
+    loader.style.display = 'none';
+    content.classList.remove('hidden');
+    seeMoreBtn.style.display = 'block';
+
+    // --- 1. Process Data ---
+    const allDefects = chartData.slice(1);
+    const totalDefects = allDefects.reduce((sum, item) => sum + item[1], 0);
+    const top5Defects = allDefects.slice(0, 5);
+
+    const top5Total = top5Defects.reduce((sum, item) => sum + item[1], 0);
+    const othersTotal = totalDefects - top5Total;
+
+    const chartDataWithOthers = [chartData[0]];
+    chartDataWithOthers.push(...top5Defects);
+    if (othersTotal > 0) {
+        chartDataWithOthers.push(['Outros', othersTotal]);
+    }
+    
+    const colors = ['#F97316', '#FB923C', '#FDBA74', '#FED7AA', '#FFEDD5', '#E2E8F0'];
+
+    // --- 2. Draw Pie Chart ---
+    const data = google.visualization.arrayToDataTable(chartDataWithOthers);
+    const options = {
+        fontName: 'Inter',
+        pieHole: 0.4,
+        legend: 'none',
+        chartArea: { left: 5, top: 5, width: '90%', height: '90%' },
+        colors: colors,
+        pieSliceText: 'percentage',
+        pieSliceTextStyle: { color: 'black', fontName: 'Inter', fontSize: 14, bold: true },
+        tooltip: { text: 'value-and-percentage', textStyle: { fontName: 'Inter', fontSize: 12 } }
+    };
+    const chart = new google.visualization.PieChart(chartContainer);
+    chart.draw(data, options);
+
+    // --- 3. Render Detailed List ---
+    let listHtml = '';
+    top5Defects.forEach(([defect, count], index) => {
+        const percentage = totalDefects > 0 ? (count / totalDefects) * 100 : 0;
+        listHtml += `
+            <div>
+                <div class="flex justify-between items-center text-sm mb-1">
+                    <div class="flex items-center">
+                        <span class="w-3 h-3 rounded-full mr-3 flex-shrink-0" style="background-color: ${colors[index]};"></span>
+                        <span class="font-medium text-slate-700 truncate" title="${defect}">${defect}</span>
+                    </div>
+                    <span class="font-bold text-slate-800 flex-shrink-0 ml-2">${count} (${percentage.toFixed(1)}%)</span>
+                </div>
+                <div class="w-full bg-slate-200 rounded-full h-2">
+                    <div class="h-2 rounded-full" style="width: ${percentage}%; background-color: ${colors[index]};"></div>
+                </div>
+            </div>
+        `;
+    });
+    listContainer.innerHTML = listHtml;
+}
+
+
+function openDefectsModal() {
+    if (!allDefectsData || !allDefectsData.defectsCount || allDefectsData.defectsCount.length <= 1) {
+        alert("Não há dados de defeitos para analisar.");
+        return;
+    }
+
+    const modal = document.getElementById('defects-modal');
+    const modalContent = document.getElementById('defects-modal-content');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modalContent.classList.remove('scale-95');
+    }, 10);
+
+    const listContainer = document.getElementById('all-defects-list');
+    listContainer.innerHTML = '';
+    const allDefects = allDefectsData.defectsCount.slice(1); // Ignora o cabeçalho
+
+    allDefects.forEach(([defect, count]) => {
+        const escapedDefect = defect.replace(/'/g, "\\'");
+        const listItem = `
+            <button onclick="showDefectAnalysisFor('${escapedDefect}')" class="w-full text-left p-2 rounded-md hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-400 defect-list-item">
+                <div class="flex justify-between items-center text-sm">
+                    <span class="font-medium text-slate-700">${defect}</span>
+                    <span class="font-bold text-slate-800 bg-slate-200 px-2 py-0.5 rounded-full text-xs">${count}</span>
+                </div>
+            </button>
+        `;
+        listContainer.innerHTML += listItem;
+    });
+
+    // Reseta a visão de análise
+    document.getElementById('defect-analysis-prompt').style.display = 'flex';
+    document.getElementById('defect-analysis-content').classList.add('hidden');
+}
+
+function closeDefectsModal() {
+    const modal = document.getElementById('defects-modal');
+    const modalContent = document.getElementById('defects-modal-content');
+    modal.classList.add('opacity-0');
+    modalContent.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, 300);
+}
+
+function showDefectAnalysisFor(selectedDefect) {
+    // Destaque visual na lista
+    document.querySelectorAll('.defect-list-item').forEach(btn => btn.classList.remove('bg-orange-200'));
+    const buttons = document.querySelectorAll('.defect-list-item');
+    for(let btn of buttons){
+        if(btn.textContent.includes(selectedDefect)){
+            btn.classList.add('bg-orange-200');
+            break;
+        }
+    }
+
+    // Mostra o painel de conteúdo
+    document.getElementById('defect-analysis-prompt').style.display = 'none';
+    document.getElementById('defect-analysis-content').classList.remove('hidden');
+
+    drawRootCauseChart(selectedDefect);
+    drawCorrelationChart(selectedDefect);
+    renderClientTermsCloud(selectedDefect);
+}
+
+function drawRootCauseChart(selectedDefect) {
+    const container = document.getElementById('root-cause-chart');
+    const rootCauses = allDefectsData.rootCauseAnalysis[selectedDefect];
+    
+    if (!rootCauses || Object.keys(rootCauses).length === 0) {
+        container.innerHTML = '<p class="text-center text-slate-500 pt-10">Nenhuma causa raiz categorizada para este defeito.</p>';
+        return;
+    }
+
+    const sortedCauses = Object.entries(rootCauses).sort(([, a], [, b]) => b - a);
+    const chartData = [['Causa Raiz', 'Ocorrências'], ...sortedCauses];
+    const data = google.visualization.arrayToDataTable(chartData);
+
+    const options = {
+        fontName: 'Inter',
+        legend: { position: 'none' },
+        chartArea: { width: '60%', height: '80%', left: 150 },
+        hAxis: { title: 'Ocorrências', minValue: 0, textStyle: { color: '#475569' }, format: '0' },
+        vAxis: { textStyle: { color: '#475569', fontSize: 11 } },
+        colors: ['#F97316'],
+        bar: { groupWidth: '60%' }
+    };
+
+    const chart = new google.visualization.BarChart(container);
+    chart.draw(data, options);
+}
+
+function drawCorrelationChart(selectedDefect) {
+    const container = document.getElementById('correlation_chart');
+    const correlations = allDefectsData.correlationData[selectedDefect];
+    
+    if (!correlations || Object.keys(correlations).length === 0) {
+        container.innerHTML = '<p class="text-center text-slate-500 pt-10">Nenhuma correlação encontrada.</p>';
+        return;
+    }
+    
+    const sortedCorrelations = Object.entries(correlations).sort(([, a], [, b]) => b - a).slice(0, 5);
+    const chartData = [['Defeito', 'Ocorrências'], ...sortedCorrelations];
+    const data = google.visualization.arrayToDataTable(chartData);
+
+    const options = {
+        fontName: 'Inter',
+        legend: { position: 'none' },
+        chartArea: { width: '60%', height: '80%', left: 150 },
+        hAxis: { title: 'Ocorrências', minValue: 0, textStyle: { color: '#475569' }, format: '0' },
+        vAxis: { textStyle: { color: '#475569', fontSize: 11 } },
+        colors: ['#FB923C'],
+        bar: { groupWidth: '60%' }
+    };
+    const chart = new google.visualization.BarChart(container);
+    chart.draw(data, options);
+}
+
+function renderClientTermsCloud(selectedDefect) {
+    const container = document.getElementById('client-terms-cloud');
+    const terms = allDefectsData.clientTerms[selectedDefect];
+
+    if (!terms || terms.length === 0) {
+        container.innerHTML = '<p class="text-center text-slate-500 pt-10">Nenhum termo comum encontrado nos relatos dos clientes.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+    const maxCount = terms[0][1]; 
+
+    terms.forEach(([term, count]) => {
+        const weight = Math.max(0.75, (count / maxCount) * 2.5); // 0.75rem to 2.5rem
+        const opacity = Math.max(0.5, (count / maxCount));
+        const termEl = document.createElement('span');
+        termEl.className = 'inline-block bg-slate-100 text-slate-700 rounded-full px-3 py-1 m-1';
+        termEl.style.fontSize = `${weight}rem`;
+        termEl.style.opacity = opacity;
+        termEl.textContent = term;
+        container.appendChild(termEl);
+    });
+}
+
 </script>
+
