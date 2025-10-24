@@ -1,6 +1,6 @@
 /**
  * Contém todas as funções do lado do servidor para a página do Dashboard de Calltech.
- * @version 1.3 - Dicionário de Causa Raiz aprimorado com termos técnicos específicos.
+ * @version 1.5 - Adiciona a classificação do NPS à tabela de chamados.
  */
 function getCalltechData(dateRange) {
   try {
@@ -93,6 +93,8 @@ function getCalltechData(dateRange) {
             openTickets++;
           }
 
+          const npsClassification = npsMap.get(pedidoId) || null;
+
           tickets.push({
             status, chamadoId, pedidoId,
             dataAbertura: openDateStr.split(' ')[0],
@@ -100,7 +102,8 @@ function getCalltechData(dateRange) {
             dataFinalizacao: closeDateStr ? closeDateStr.split(' ')[0] : '',
             email: row[INDICES_CALLTECH.EMAIL],
             hasNps: npsMap.has(pedidoId),
-            hasDevolucao: devolucaoMap.has(pedidoId)
+            hasDevolucao: devolucaoMap.has(pedidoId),
+            npsClassification: npsClassification
           });
 
           if (pedidoId && !ticketPedidoIds.has(pedidoId)) {
@@ -488,8 +491,10 @@ function getDefectsData(dateRange) {
 // --- VERSÕES COM CACHE PARA SEREM CHAMADAS PELO CLIENTE ---
 
 function getCalltechDataWithCache(dateRange) {
-  const cacheKey = `calltech_data_v4_${dateRange.start}_${dateRange.end}`;
-  return getOrSetCache(cacheKey, getCalltechData, [dateRange]);
+  // O cache foi removido desta função específica devido ao grande volume de dados
+  // que excedia o limite de 100KB do serviço de cache do Apps Script.
+  Logger.log(`CACHE BYPASS: Buscando dados frescos para getCalltechData. Chave seria: calltech_data_v4_${dateRange.start}_${dateRange.end}`);
+  return getCalltechData(dateRange);
 }
 
 function getDailyFlowChartDataWithCache(dateRange) {
