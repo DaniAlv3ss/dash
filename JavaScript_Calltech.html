@@ -287,7 +287,7 @@ function displayCalltechPage() {
     tbody.innerHTML = '';
 
     if (filteredCalltechTickets.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center p-4">Nenhum chamado encontrado para os filtros aplicados.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4">Nenhum chamado encontrado para os filtros aplicados.</td></tr>';
         pageInfo.textContent = '0 de 0';
         prevBtn.disabled = true;
         nextBtn.disabled = true;
@@ -297,6 +297,8 @@ function displayCalltechPage() {
     const startIndex = (calltechCurrentPage - 1) * calltechRowsPerPage;
     const endIndex = startIndex + calltechRowsPerPage;
     const pageTickets = filteredCalltechTickets.slice(startIndex, endIndex);
+    
+    const classificationClasses = { promotor: 'bg-emerald-100 text-emerald-800', neutro: 'bg-amber-100 text-amber-800', detrator: 'bg-red-100 text-red-800' };
 
     pageTickets.forEach(ticket => {
         const isClosed = (ticket.status || '').toLowerCase().includes('finalizado') || (ticket.status || '').toLowerCase().includes('resolvido');
@@ -305,11 +307,19 @@ function displayCalltechPage() {
             ? `<a href="#" class="font-semibold hover:text-orange-500" onclick="event.preventDefault(); openClientHistory('${ticket.email}')">${ticket.cliente}</a>` 
             : ticket.cliente;
 
+        let npsCellHtml = '-';
+        if (ticket.npsClassification) {
+            const classification = ticket.npsClassification.toLowerCase();
+            const badgeClass = classificationClasses[classification] || 'bg-slate-100 text-slate-800';
+            npsCellHtml = `<span class="px-2 py-1 text-xs font-medium rounded-full capitalize ${badgeClass}">${classification}</span>`;
+        }
+
         const tr = `
             <tr class="border-b hover:bg-orange-50 transition-colors">
                 <td class="p-3">${ticket.chamadoId}</td>
                 <td class="p-3">${ticket.pedidoId}</td>
                 <td class="p-3">${clienteHtml}</td>
+                <td class="p-3">${npsCellHtml}</td>
                 <td class="p-3"><span class="px-2 py-1 text-xs font-semibold rounded-full ${statusClass}">${ticket.status}</span></td>
                 <td class="p-3">${ticket.dataAbertura}</td>
                 <td class="p-3">${ticket.dataFinalizacao}</td>
@@ -763,4 +773,3 @@ function renderClientTermsCloud(selectedDefect) {
 }
 
 </script>
-
