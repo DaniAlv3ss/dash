@@ -1,10 +1,10 @@
 /**
  * Contém todas as funções do lado do servidor para o modal de Calendário.
- * @version 1.3 - Verificação de sintaxe reforçada.
+ * @version 1.6 - Reutiliza a lógica de leitura de data da aba Ações (similar a getRecentActions) e atualiza cache.
  */
 
 // Constantes globais (garanta que estas estão definidas em Code.gs ou similar)
-// const ID_PLANILHA_NPS = "SEU_ID_PLANILHA_NPS";
+// const ID_PLANILHA_NPS = "1ewRARy4u4V0MJMoup0XbPlLLUrdPmR4EZwRwmy_ZECM"; // Exemplo
 // const NOME_ABA_ACOES = "ações 2025";
 // const NOME_ABA_CALENDARIO = "Calendário";
 
@@ -32,42 +32,45 @@ function getCalendarEvents(year, month) {
     const timeZone = Session.getScriptTimeZone();
     Logger.log(`Buscando eventos para ${targetYear}-${targetMonth} na timezone ${timeZone}`);
 
-    // --- Processa Aba Ações ---
+    // --- Processa Aba Ações --- (Lógica Adaptada de getRecentActions)
     if (abaAcoes) {
       const lastRowAcoes = abaAcoes.getLastRow();
       if (lastRowAcoes >= 2) {
         const numRowsAcoes = lastRowAcoes - 1;
-        // Colunas B até H (índices 2 a 8), 7 colunas no total
-        const range = abaAcoes.getRange(2, 2, numRowsAcoes, 7);
+        // Lê colunas B (Ação) até G (Data) - Coluna B é índice 0 no array retornado por getValues()
+        // Coluna G (Data) será o índice 5 no array retornado
+        const range = abaAcoes.getRange(2, 2, numRowsAcoes, 6); // B2:G<lastRow>
         const dadosAcoes = range.getValues();
-        Logger.log(`Lidas ${dadosAcoes.length} linhas da aba Ações.`);
+        Logger.log(`Lidas ${dadosAcoes.length} linhas da aba Ações usando getValues() [B:G].`);
 
         dadosAcoes.forEach((row, rowIndex) => {
-          // Índices baseados no array 'row' (começa em 0)
-          const titulo = row[1];       // Coluna C (índice 1 no array 'row')
-          const descricao = row[2];    // Coluna D (índice 2 no array 'row')
-          const dataAcaoRaw = row[6]; // Coluna H (índice 6 no array 'row')
-          let dataAcao = null;
+          const rowNumber = rowIndex + 2;
+          const titulo = row[0]; // Coluna B (Índice 0)
+          const dataAcao = row[5]; // Coluna G (Índice 5) - Deveria ser um objeto Date
 
-          try {
-            dataAcao = parseDateValue_(dataAcaoRaw);
-          } catch (e) {
-            Logger.log(`Erro ao parsear data na linha ${rowIndex + 2} da aba Ações: ${dataAcaoRaw}. Erro: ${e.message}`);
-            dataAcao = null;
-          }
+          Logger.log(`Ações - Linha ${rowNumber}: Lendo Título='${titulo}', Data='${dataAcao}' (Tipo: ${typeof dataAcao})`);
 
+          // Verifica se a data é um objeto Date válido e se há título
           if (dataAcao instanceof Date && !isNaN(dataAcao) && titulo) {
+            // Compara ano e mês (getMonth() é 0-indexado)
             if (dataAcao.getFullYear() === targetYear && dataAcao.getMonth() + 1 === targetMonth) {
               allEvents.push({
                 type: 'acao',
                 date: Utilities.formatDate(dataAcao, timeZone, "yyyy-MM-dd"),
                 title: String(titulo).trim(),
-                summary: descricao ? String(descricao).trim() : '',
+                summary: '', // Aba ações não tem descrição separada nesta leitura
                 startTime: null,
                 endTime: null,
                 links: null
               });
+              Logger.log(`Ações - Linha ${rowNumber}: Evento adicionado para ${Utilities.formatDate(dataAcao, timeZone, "yyyy-MM-dd")}.`);
+            } else {
+                 Logger.log(`Ações - Linha ${rowNumber}: Data ${Utilities.formatDate(dataAcao, timeZone, "yyyy-MM-dd")} fora do período alvo ${targetYear}-${String(targetMonth).padStart(2,'0')}.`);
             }
+          } else if (!titulo) {
+               Logger.log(`Ações - Linha ${rowNumber}: Ignorado por falta de título.`);
+          } else {
+               Logger.log(`Ações - Linha ${rowNumber}: Ignorado por data inválida ou ausente (Data: ${dataAcao}).`);
           }
         });
       } else {
@@ -82,9 +85,8 @@ function getCalendarEvents(year, month) {
       const lastRowCalendario = abaCalendario.getLastRow();
       if (lastRowCalendario >= 2) {
         const numRowsCalendario = lastRowCalendario - 1;
-        // Colunas A até F (índices 1 a 6), 6 colunas no total
         const dadosCalendario = abaCalendario.getRange(2, 1, numRowsCalendario, 6).getValues();
-        Logger.log(`Lidas ${dadosCalendario.length} linhas da aba Calendário.`);
+        Logger.log(`Lidas ${dadosCalendario.length} linhas da aba Calendário usando getValues().`);
 
         dadosCalendario.forEach((row, rowIndex) => {
           const dataEventoRaw = row[0]; // Coluna A
@@ -95,17 +97,25 @@ function getCalendarEvents(year, month) {
           const links = row[5];        // Coluna F
           let dataEvento = null;
 
-          try {
-            dataEvento = parseDateValue_(dataEventoRaw);
-          } catch (e) {
-            Logger.log(`Erro ao parsear data na linha ${rowIndex + 2} da aba Calendário: ${dataEventoRaw}. Erro: ${e.message}`);
-            dataEvento = null;
-          }
+           if (dataEventoRaw instanceof Date && !isNaN(dataEventoRaw)) {
+              dataEvento = dataEventoRaw;
+           } else {
+              try {
+                dataEvento = parseDateValue_(dataEventoRaw);
+              } catch (e) {
+                Logger.log(`Calendário - Linha ${rowIndex + 2}: Erro ao parsear data '${dataEventoRaw}'. Erro: ${e.message}`);
+                dataEvento = null;
+              }
+           }
 
           if (dataEvento instanceof Date && !isNaN(dataEvento) && titulo) {
             if (dataEvento.getFullYear() === targetYear && dataEvento.getMonth() + 1 === targetMonth) {
-              const horaInicio = (horaInicioRaw instanceof Date && !isNaN(horaInicioRaw)) ? Utilities.formatDate(horaInicioRaw, timeZone, "HH:mm") : null;
-              const horaTermino = (horaTerminoRaw instanceof Date && !isNaN(horaTerminoRaw)) ? Utilities.formatDate(horaTerminoRaw, timeZone, "HH:mm") : null;
+              const horaInicio = (horaInicioRaw instanceof Date && !isNaN(horaInicioRaw))
+                                  ? Utilities.formatDate(horaInicioRaw, timeZone, "HH:mm")
+                                  : (typeof horaInicioRaw === 'string' && /^\d{1,2}:\d{2}$/.test(horaInicioRaw.trim())) ? horaInicioRaw.trim() : null;
+              const horaTermino = (horaTerminoRaw instanceof Date && !isNaN(horaTerminoRaw))
+                                  ? Utilities.formatDate(horaTerminoRaw, timeZone, "HH:mm")
+                                  : (typeof horaTerminoRaw === 'string' && /^\d{1,2}:\d{2}$/.test(horaTerminoRaw.trim())) ? horaTerminoRaw.trim() : null;
 
               allEvents.push({
                 type: 'calendario',
@@ -116,7 +126,10 @@ function getCalendarEvents(year, month) {
                 endTime: horaTermino,
                 links: links ? String(links).trim() : null
               });
+              Logger.log(`Calendário - Linha ${rowIndex + 2}: Evento adicionado para ${Utilities.formatDate(dataEvento, timeZone, "yyyy-MM-dd")}.`);
             }
+          } else {
+             Logger.log(`Calendário - Linha ${rowIndex + 2}: Ignorado por data inválida ou falta de título (Data: ${dataEvento}, Título: ${titulo}).`);
           }
         });
       } else {
@@ -138,24 +151,26 @@ function getCalendarEvents(year, month) {
     // Ordena os eventos dentro de cada dia
     for (const date in eventsByDate) {
       eventsByDate[date].sort((a, b) => {
-        const timeA = a.startTime ? a.startTime : "23:59:59"; // Eventos sem hora vão para o fim
+        const timeA = a.startTime ? a.startTime : "23:59:59";
         const timeB = b.startTime ? b.startTime : "23:59:59";
         if (timeA !== timeB) {
-          return timeA.localeCompare(timeB);
+          const [hA = 0, mA = 0] = (a.startTime || "").split(':').map(Number);
+          const [hB = 0, mB = 0] = (b.startTime || "").split(':').map(Number);
+          if (hA !== hB) return hA - hB;
+          if (mA !== mB) return mA - mB;
         }
         if (a.type !== b.type) {
-          return a.type === 'acao' ? -1 : 1; // Prioriza Ação
+          return a.type === 'acao' ? -1 : 1;
         }
-        return a.title.localeCompare(b.title); // Ordena por título
+        return a.title.localeCompare(b.title);
       });
     }
 
-    Logger.log(`Retornando ${Object.keys(eventsByDate).length} dias com eventos.`);
+    Logger.log(`Retornando ${Object.keys(eventsByDate).length} dias com eventos. Total de eventos: ${allEvents.length}`);
     return eventsByDate;
 
   } catch (e) {
     Logger.log(`ERRO GRAVE em getCalendarEvents: ${e.message}\n${e.stack}`);
-    // Retorna um objeto de erro claro para o frontend
     return { error: `Erro no servidor ao buscar eventos: ${e.message}` };
   }
 }
@@ -175,11 +190,10 @@ function parseDateValue_(dateValue) {
   // Se for número (provavelmente serial do Sheets)
   if (typeof dateValue === 'number') {
     try {
-      // Ajuste para UTC para evitar problemas de fuso na conversão do serial
        const date = new Date(Date.UTC(1899, 11, 30 + dateValue));
       if (!isNaN(date)) return date;
     } catch(e){
-       Logger.log(`Erro ao converter serial ${dateValue} para data: ${e.message}`);
+       Logger.log(`parseDateValue_: Erro ao converter serial ${dateValue} para data: ${e.message}`);
     }
   }
 
@@ -188,22 +202,23 @@ function parseDateValue_(dateValue) {
     const trimmedDate = dateValue.trim();
     let parsedDate = null;
     try {
-      // Tenta formato ISO ou similar YYYY-MM-DD ou YYYY/MM/DD
+      // Tenta formato ISO ou similar YYYY-MM-DD ou YYYY/MM/DD (com ou sem hora)
       if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(trimmedDate)) {
-        const parts = trimmedDate.split(/[-/]/);
-        // Usa UTC para consistência
-        parsedDate = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+        const parts = trimmedDate.split(/[-/ T]/);
+        if (parts.length >= 3) {
+            parsedDate = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+        }
       }
-      // Tenta formato brasileiro DD/MM/YYYY ou DD-MM-YYYY
+      // Tenta formato brasileiro DD/MM/YYYY ou DD-MM-YYYY (com ou sem hora)
       else if (/^\d{1,2}[-/]\d{1,2}[-/]\d{4}/.test(trimmedDate)) {
-        const parts = trimmedDate.split(/[-/]/);
-         // Usa UTC para consistência
-        parsedDate = new Date(Date.UTC(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10)));
+        const parts = trimmedDate.split(/[-/ T]/);
+         if (parts.length >= 3) {
+            parsedDate = new Date(Date.UTC(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10)));
+         }
       }
-      // Última tentativa: deixar o construtor Date tentar (menos confiável)
+      // Última tentativa: construtor Date
       else {
         parsedDate = new Date(trimmedDate);
-         // Se resultou em inválido, tenta forçar UTC/GMT
          if (isNaN(parsedDate)) {
              const timestamp = Date.parse(trimmedDate + ' GMT');
              if (!isNaN(timestamp)) {
@@ -212,26 +227,23 @@ function parseDateValue_(dateValue) {
          }
       }
 
-      // Verifica validade final
       if (parsedDate instanceof Date && !isNaN(parsedDate)) {
         return parsedDate;
       } else {
-          Logger.log(`Falha ao parsear string de data: ${trimmedDate}`);
+          Logger.log(`parseDateValue_: Falha ao parsear string de data: ${trimmedDate}. Resultado: ${parsedDate}`);
       }
     } catch (e) {
-      Logger.log(`Exceção ao parsear string de data '${trimmedDate}': ${e.message}`);
+      Logger.log(`parseDateValue_: Exceção ao parsear string de data '${trimmedDate}': ${e.message}`);
     }
   }
-
-  // Se chegou aqui, não conseguiu parsear
   return null;
 }
 
 // --- Versão com Cache ---
 function getCalendarEventsWithCache(year, month) {
-  const cacheKey = `calendar_events_v1.3_${year}_${month}`; // Versão incrementada
-  // Descomente a linha abaixo para testar SEMPRE buscando dados frescos
-  // return getCalendarEvents(year, month);
+  // **VERSÃO DO CACHE ATUALIZADA**
+  const cacheKey = `calendar_events_v1.6_${year}_${month}`;
+  // return getCalendarEvents(year, month); // Descomente para testar SEMPRE buscando dados frescos
   return getOrSetCache(cacheKey, getCalendarEvents, [year, month]);
 }
 
