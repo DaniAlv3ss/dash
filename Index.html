@@ -57,6 +57,34 @@
             grid-column: 2;
             grid-row: 1;
         }
+
+        /* --- ESTILOS DO MODAL CALENDÁRIO --- */
+        #calendar-modal { transition: opacity 0.3s ease-in-out; }
+        #calendar-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background-color: #e2e8f0; border: 1px solid #e2e8f0; }
+        .calendar-header { background-color: #f8fafc; padding: 0.5rem; text-align: center; font-weight: 600; font-size: 0.8rem; color: #475569; }
+        .calendar-day { background-color: #f1f5f9; min-height: 80px; padding: 0.3rem; font-size: 0.75rem; color: #64748b; position: relative; cursor: pointer; transition: background-color 0.2s; }
+        .calendar-day.other-month { background-color: #f8fafc; color: #cbd5e1; cursor: default; }
+        .calendar-day.today { font-weight: bold; color: #1e293b; background-color: #e0f2fe; }
+        .calendar-day.selected { background-color: #fb923c !important; color: white !important; }
+        .calendar-day:not(.other-month):hover { background-color: #fed7aa; }
+        .calendar-day span { display: block; text-align: right; }
+        .day-event-dots { display: flex; gap: 2px; position: absolute; bottom: 4px; left: 4px; }
+        .event-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .event-dot-acao { background-color: #f97316; } /* Orange-500 */
+        .event-dot-calendario { background-color: #3b82f6; } /* Blue-500 */
+
+        #calendar-event-list h3 { font-size: 1rem; font-weight: 600; color: #334155; margin-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.5rem; }
+        .event-item { padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 0.5rem; }
+        .event-item-acao { background-color: #fff7ed; border-left: 4px solid #f97316; } /* Orange-100 / Orange-500 */
+        .event-item-calendario { background-color: #eff6ff; border-left: 4px solid #3b82f6; } /* Blue-100 / Blue-500 */
+        .event-title { font-weight: 600; color: #1e293b; display: block; }
+        .event-time { font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 0.25rem; }
+        .event-summary { font-size: 0.8rem; color: #475569; margin-top: 0.25rem; }
+        .event-links a { color: #2563eb; text-decoration: underline; font-size: 0.75rem; margin-right: 0.5rem; }
+        .no-events { text-align: center; color: #94a3b8; font-size: 0.9rem; padding: 2rem 0; }
+        #calendar-event-list { max-height: calc(85vh - 150px); overflow-y: auto; } /* Adjust height based on modal structure */
+
     </style>
 </head>
 <body class="bg-slate-100">
@@ -86,14 +114,22 @@
                 </svg>
                 <span>Incompatibilidade</span>
             </a>
-            <a href="#" onclick="event.preventDefault(); loadPage('AnaliseRegional', this)" class="nav-link flex items-center py-3 px-4 text-slate-300 hover:bg-slate-700 hover:text-white rounded-md mx-2 transition-colors duration-200">
+            <a href="#" onclick="event.preventDefault(); loadPage('Auditoria', this)" class="nav-link flex items-center py-3 px-4 text-slate-300 hover:bg-slate-700 hover:text-white rounded-md mx-2 transition-colors duration-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>Análise Regional</span>
+                <span>Auditoria</span>
             </a>
         </nav>
+        <!-- Botão Calendário no Rodapé -->
+        <div class="mt-auto p-2 border-t border-slate-700">
+            <button id="open-calendar-modal-btn" class="w-full flex items-center justify-center py-3 px-4 text-slate-300 bg-slate-700 hover:bg-slate-600 hover:text-white rounded-md transition-colors duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span>Calendário</span>
+            </button>
+        </div>
     </div>
 
     <div id="main-content" class="ml-64">
@@ -111,11 +147,61 @@
         </main>
     </div>
 
+    <!-- Estrutura do Modal Calendário -->
+    <div id="calendar-modal" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden items-center justify-center p-4 opacity-0">
+        <div id="calendar-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col transform scale-95 opacity-0">
+            <!-- Cabeçalho do Modal -->
+            <div class="flex justify-between items-center p-4 border-b border-slate-200 bg-white rounded-t-xl flex-shrink-0">
+                <div class="flex items-center gap-4">
+                    <button id="calendar-prev-month" class="p-1 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                    </button>
+                    <h2 id="calendar-month-year" class="text-lg font-semibold text-slate-800 text-center w-40">Carregando...</h2>
+                    <button id="calendar-next-month" class="p-1 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-700">
+                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                    </button>
+                </div>
+                 <div class="flex items-center gap-3">
+                    <span class="flex items-center text-xs"><span class="w-2.5 h-2.5 rounded-full bg-orange-500 mr-1.5"></span>Ação Estratégica</span>
+                    <span class="flex items-center text-xs"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 mr-1.5"></span>Evento Calendário</span>
+                    <button id="calendar-modal-close" class="text-slate-400 hover:text-slate-600 text-2xl font-bold ml-4">&times;</button>
+                 </div>
+            </div>
+            <!-- Corpo do Modal (Grid) -->
+            <div class="flex flex-grow overflow-hidden">
+                 <!-- Calendário -->
+                <div class="w-2/3 p-4 overflow-y-auto">
+                    <div id="calendar-grid-header" class="grid grid-cols-7 gap-1 mb-1">
+                        <div class="calendar-header">Dom</div>
+                        <div class="calendar-header">Seg</div>
+                        <div class="calendar-header">Ter</div>
+                        <div class="calendar-header">Qua</div>
+                        <div class="calendar-header">Qui</div>
+                        <div class="calendar-header">Sex</div>
+                        <div class="calendar-header">Sáb</div>
+                    </div>
+                    <div id="calendar-grid">
+                        <!-- Dias serão gerados aqui -->
+                         <div class="text-center py-10 col-span-7 text-slate-500" id="calendar-loader">Carregando calendário...</div>
+                    </div>
+                </div>
+                 <!-- Sidebar de Eventos -->
+                <div class="w-1/3 bg-white border-l border-slate-200 p-4 overflow-y-auto" id="calendar-event-sidebar">
+                    <h3 id="event-list-title">Selecione um dia</h3>
+                    <div id="calendar-event-list">
+                        <div class="no-events">Nenhum evento para o dia selecionado.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
     <script>
         // ==================================================================
         // === LÓGICA DE NAVEGAÇÃO E INICIALIZAÇÃO (OTIMIZADA) ==============
         // ==================================================================
-        
+
         const pageCache = {
             html: {},
             data: {}
@@ -123,10 +209,14 @@
 
         // Otimização: Injeta os dados pré-carregados do servidor no cache do cliente
         const initialServerData = <?!= initialData || 'null' ?>;
-        if (initialServerData) {
+        if (initialServerData && !initialServerData.error) { // Verifica se há dados e se não há erro
             console.log("Dados iniciais pré-carregados do servidor.");
             pageCache.data.dashboard = initialServerData.mainData;
             pageCache.data.evolution = initialServerData.evolutionData;
+        } else if (initialServerData && initialServerData.error) {
+            console.error("Erro ao pré-carregar dados iniciais: ", initialServerData.error);
+        } else {
+             console.log("Nenhum dado inicial pré-carregado.");
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -143,6 +233,8 @@
                 // Carrega a página inicial
                 loadPage('Dashboard', document.querySelector('.nav-link'));
 
+                // REMOVIDO: A inicialização do calendário agora é feita pelo próprio script do calendário
+
             } catch (error) {
                 displayError('Erro Crítico na Inicialização', error);
             }
@@ -154,10 +246,10 @@
                 'Calltech': 'Dashboard de Atendimento - Calltech',
                 'Devolucao': 'Dashboard de Devoluções - Monte o Seu PC',
                 'Incompatibilidade': 'Dashboard de Incompatibilidades',
-                'AnaliseRegional': 'Análise Regional'
+                'Auditoria': 'Dashboard de Auditoria - MSPC' // Título Atualizado
             };
             document.getElementById('page-title').textContent = pageTitles[pageName] || 'Dashboard';
-            
+
             // Atualiza o estado ativo do menu
             document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('bg-slate-700', 'text-white'));
             if(clickedLink) clickedLink.classList.add('bg-slate-700', 'text-white');
@@ -180,19 +272,41 @@
                     .getPageHtml(pageName);
             }
         }
-        
+
         // Direciona para a função de inicialização correta
         function initializePage(pageName) {
-            if (pageName === 'Dashboard') {
-                initializeDashboardPage();
-            } else if (pageName === 'Calltech') {
-                initializeCalltechPage();
-            } else if (pageName === 'Devolucao') {
-                initializeDevolucaoPage();
-            } else if (pageName === 'Incompatibilidade') {
-                initializeIncompatibilidadePage();
-            } else if (pageName === 'AnaliseRegional') {
-                initializeAnaliseRegionalPage();
+            // Garante que o google charts esteja carregado antes de inicializar a página específica
+            if (typeof google === 'undefined' || typeof google.charts === 'undefined') {
+                console.log("Google Charts ainda não carregado, aguardando...");
+                 google.charts.load('current', { 'packages': ['corechart', 'bar'] }); // Garante o carregamento
+                 google.charts.setOnLoadCallback(() => {
+                      console.log("Google Charts carregado, inicializando página:", pageName);
+                      callPageInitializer(pageName);
+                 });
+            } else {
+                 console.log("Google Charts já carregado, inicializando página:", pageName);
+                 callPageInitializer(pageName);
+            }
+        }
+
+        function callPageInitializer(pageName){
+             try {
+                if (pageName === 'Dashboard' && typeof initializeDashboardPage === 'function') {
+                    initializeDashboardPage();
+                } else if (pageName === 'Calltech' && typeof initializeCalltechPage === 'function') {
+                    initializeCalltechPage();
+                } else if (pageName === 'Devolucao' && typeof initializeDevolucaoPage === 'function') {
+                    initializeDevolucaoPage();
+                } else if (pageName === 'Incompatibilidade' && typeof initializeIncompatibilidadePage === 'function') {
+                    initializeIncompatibilidadePage();
+                } else if (pageName === 'Auditoria' && typeof initializeAuditoriaPage === 'function') {
+                    initializeAuditoriaPage();
+                }
+                 else {
+                     console.warn(`Função de inicialização para a página ${pageName} não encontrada ou não é uma função.`);
+                 }
+            } catch (error) {
+                 displayError(`Erro ao inicializar a página ${pageName}`, error);
             }
         }
 
@@ -206,11 +320,11 @@
                     <p class="text-lg font-semibold text-orange-500">${message}</p>
                 </div>`;
         }
-        
+
         function displayError(title, error) {
             const errorMessage = error.message || JSON.stringify(error);
             const errorStack = error.stack || 'Não disponível';
-             document.getElementById('page-content').innerHTML = 
+             document.getElementById('page-content').innerHTML =
                 `<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 m-4" role="alert">
                     <p class="font-bold">${title}</p>
                     <p>${errorMessage}</p>
@@ -221,26 +335,38 @@
 
         function toggleDatePopup(event, popupId) {
             event.stopPropagation();
+            // Fecha outros popups abertos antes de abrir o novo
+             document.querySelectorAll('.date-popup.show').forEach(popup => {
+                if(popup.id !== popupId) popup.classList.remove('show');
+            });
             document.getElementById(popupId).classList.toggle('show');
         }
 
         // Fecha popups de data se clicar fora deles
         window.addEventListener('click', function(event) {
-            document.querySelectorAll('.date-popup.show').forEach(popup => {
-                const toggle = document.getElementById(popup.id.replace('popup', 'toggle'));
-                if (toggle && !popup.contains(event.target) && !toggle.contains(event.target)) {
-                    popup.classList.remove('show');
+            let clickedInsidePopup = false;
+            document.querySelectorAll('.date-popup.show, .date-dropdown button').forEach(el => {
+                if (el.contains(event.target)) {
+                    clickedInsidePopup = true;
                 }
             });
+
+            if (!clickedInsidePopup) {
+                 document.querySelectorAll('.date-popup.show').forEach(popup => {
+                     popup.classList.remove('show');
+                 });
+            }
         });
 
     </script>
-    
+
     <?!= include('JavaScript_Dashboard'); ?>
     <?!= include('JavaScript_Calltech'); ?>
     <?!= include('JavaScript_Devolucao'); ?>
     <?!= include('JavaScript_Incompatibilidade'); ?>
-    <?!= include('JavaScript_AnaliseRegional'); ?>
+    <?!= include('JavaScript_Auditoria'); ?>
+    <?!= include('JavaScript_Calendario'); ?>
 
 </body>
 </html>
+
