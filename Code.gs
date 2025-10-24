@@ -1,6 +1,6 @@
 /**
  * Script Principal para servir o aplicativo da web e conter funções/constantes globais.
- * @version 2.4 - Adicionada constante para a aba de defeitos.
+ * @version 2.5 - Adicionada constante para a aba Calendário.
  */
 
 // === CENTRAL DE CONFIGURAÇÕES GLOBAIS ===
@@ -8,16 +8,19 @@ const ID_PLANILHA_NPS = "1ewRARy4u4V0MJMoup0XbPlLLUrdPmR4EZwRwmy_ZECM";
 const ID_PLANILHA_CALLTECH = "1bmHgGpAXAB4Sh95t7drXLImfNgAojCHv-o2CYS2d3-g";
 const ID_PLANILHA_DEVOLUCAO = "1m3tOvmSOJIvRZY9uZNf1idSTEnUFbHIWPNh5tiHkKe0";
 const ID_PLANILHA_INCOMPATIBILIDADE = "10l1w3d3HYSKFgSsnjOZ545efR-bdIECEkOR82IjV3TE";
+const ID_PLANILHA_AUDITORIA = "11kNgPKKS_Ao7cpyI13DaDRzBaejvW67cKyUz_BrlGGc";
 
 
 // Nomes das abas
 const NOME_ABA_NPS = "Avaliações 2025";
 const NOME_ABA_ACOES = "ações 2025";
+const NOME_ABA_CALENDARIO = "Calendário"; // <-- Nova Aba
 const NOME_ABA_ATENDIMENTO = "Forms";
 const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager";
 const NOME_ABA_DEVOLUCAO = "Base Devolução";
 const NOME_ABA_DEFEITOS = "Dim_Defeitos";
+const NOME_ABA_AUDITORIA = "Respostas ao formulário 3";
 
 // Índices de colunas (mantidos aqui para referência global, se necessário)
 const INDICES_NPS = {
@@ -82,7 +85,12 @@ function getOrSetCache(cacheKey, dataFetchFunction, functionArgs) {
 
   Logger.log(`CACHE MISS: Chave: ${cacheKey}. Buscando dados frescos.`);
   const freshData = dataFetchFunction.apply(null, functionArgs);
-  cache.put(cacheKey, JSON.stringify(freshData), CACHE_EXPIRATION_SECONDS);
+  // Não armazena no cache se houver erro
+  if (freshData && !freshData.error) {
+    cache.put(cacheKey, JSON.stringify(freshData), CACHE_EXPIRATION_SECONDS);
+  } else {
+     Logger.log(`Dados com erro não foram cacheados para a chave: ${cacheKey}`);
+  }
   return freshData;
 }
 
@@ -95,8 +103,14 @@ function doGet(e) {
   const template = HtmlService.createTemplateFromFile('Index');
 
   // Otimização: Pré-carrega os dados do dashboard NPS (página inicial)
-  const initialData = getInitialDashboardAndEvolutionDataWithCache(); // Usa a versão com cache
-  template.initialData = JSON.stringify(initialData);
+  try {
+    const initialData = getInitialDashboardAndEvolutionDataWithCache(); // Usa a versão com cache
+    template.initialData = JSON.stringify(initialData);
+  } catch (err) {
+    Logger.log("Erro ao pré-carregar dados iniciais: " + err);
+    template.initialData = 'null'; // Evita que a página quebre se houver erro no pré-carregamento
+  }
+
 
   return template.evaluate()
     .setTitle('Dashboard KaBuM! - Monte o Seu PC')
@@ -107,11 +121,15 @@ function doGet(e) {
  * Retorna o conteúdo HTML de uma página específica para ser carregado dinamicamente.
  */
 function getPageHtml(pageName) {
-  if (pageName === 'Dashboard' || pageName === 'Calltech' || pageName === 'Devolucao' || pageName === 'Incompatibilidade') {
+  // Lista de páginas válidas
+  const validPages = ['Dashboard', 'Calltech', 'Devolucao', 'Incompatibilidade', 'Auditoria'];
+  if (validPages.includes(pageName)) {
     return HtmlService.createHtmlOutputFromFile('Page_' + pageName).getContent();
   }
+  Logger.log('Tentativa de acesso a página inválida: ' + pageName);
   throw new Error('Página não encontrada.');
 }
+
 
 /**
  * Permite a inclusão de arquivos HTML (usados para os scripts JS) dentro de outro template HTML.
@@ -137,26 +155,34 @@ function getUniqueValidRows(dados, idIndex, classIndex) {
   // Itera de trás para frente para que a primeira ocorrência (a mais recente) seja a que fica.
   for (let i = dados.length - 1; i >= 0; i--) {
     const linha = dados[i];
-    const classificacao = linha[classIndex]?.toString().toLowerCase();
     
+    // Pula linhas que não têm o número esperado de colunas (evita erros com linhas vazias/malformadas)
+    if (!linha || linha.length <= Math.max(idIndex, classIndex, fallbackIdIndex)) {
+        continue;
+    }
+
+    const classificacaoValue = linha[classIndex];
+    // Verifica se a classificação existe e é uma string antes de chamar toLowerCase()
+    const classificacao = (typeof classificacaoValue === 'string') ? classificacaoValue.trim().toLowerCase() : '';
+
     // Ignora linhas sem uma classificação válida
     if (!validClassifications.includes(classificacao)) {
       continue;
     }
 
     // Tenta usar o ID do pedido primeiro
-    let uniqueId = linha[idIndex]?.toString().trim();
+    let uniqueId = linha[idIndex];
+    uniqueId = (typeof uniqueId === 'string' || typeof uniqueId === 'number') ? String(uniqueId).trim() : '';
 
-    // Se não houver ID do pedido, usa o ID da coluna A como fallback
-    if (!uniqueId || uniqueId === "") {
-      uniqueId = linha[fallbackIdIndex]?.toString().trim();
+    // Se não houver ID do pedido válido, usa o ID da coluna A como fallback
+    if (!uniqueId) {
+      const fallbackIdValue = linha[fallbackIdIndex];
+      uniqueId = (typeof fallbackIdValue === 'string' || typeof fallbackIdValue === 'number') ? String(fallbackIdValue).trim() : '';
     }
     
     // Se um ID único foi encontrado (seja do pedido ou fallback) e ainda não foi processado...
-    if (uniqueId) {
-      if (!processedIds.has(uniqueId)) {
+    if (uniqueId && !processedIds.has(uniqueId)) {
         processedIds.set(uniqueId, linha);
-      }
     }
   }
   return Array.from(processedIds.values());
