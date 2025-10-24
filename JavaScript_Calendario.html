@@ -1,301 +1,347 @@
 <script>
 // ==================================================================
-// === LÓGICA DO MODAL DE CALENDÁRIO ==============================
+// === NOVA LÓGICA DO MODAL DE CALENDÁRIO (DESENVOLVIDA DO ZERO) ===
 // ==================================================================
 
-let currentCalendarDate = new Date();
-let calendarEventsData = {}; // Armazena os eventos do mês atual { 'YYYY-MM-DD': [event1, event2] }
-let selectedCalendarDay = null;
+(function() {
+    // --- Variáveis de Estado ---
+    let currentDisplayDate = new Date(); // Mês/Ano atualmente exibido
+    let eventsDataCache = {}; // Cache de eventos por mês {'YYYY-MM': { 'YYYY-MM-DD': [event] }}
+    let selectedDateStr = null; // Data selecionada no formato 'YYYY-MM-DD'
 
-function initializeCalendarModal() {
-    const openBtn = document.getElementById('open-calendar-modal-btn');
-    const closeBtn = document.getElementById('calendar-modal-close');
-    const modal = document.getElementById('calendar-modal');
-    const modalContent = document.getElementById('calendar-modal-content');
-    const prevMonthBtn = document.getElementById('calendar-prev-month');
-    const nextMonthBtn = document.getElementById('calendar-next-month');
-    const calendarGrid = document.getElementById('calendar-grid');
+    // --- Elementos DOM (cache para performance) ---
+    let elements = {};
 
-    if (openBtn) {
-        openBtn.addEventListener('click', openCalendarModal);
-    } else {
-        console.error("Botão de abrir modal do calendário não encontrado.");
-    }
+    /**
+     * Inicializa o modal, busca elementos DOM e adiciona event listeners.
+     * Esta função é chamada pelo script principal em Index.html.
+     */
+    function initializeCalendarModal() {
+        console.log("Inicializando Modal do Calendário...");
+        cacheDOMElements(); // Busca e armazena referências aos elementos DOM
 
-    if (closeBtn) {
-        closeBtn.addEventListener('click', closeCalendarModal);
-    } else {
-         console.error("Botão de fechar modal do calendário não encontrado.");
-    }
-    if (modal) {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeCalendarModal();
+        if (!elements.openBtn || !elements.modal || !elements.closeBtn || !elements.prevMonthBtn || !elements.nextMonthBtn || !elements.calendarGrid) {
+            console.error("ERRO: Elementos essenciais do modal do calendário não encontrados no DOM. A funcionalidade pode não operar.");
+            return; // Interrompe se elementos cruciais faltarem
+        }
+
+        // --- Event Listeners ---
+        elements.openBtn.addEventListener('click', openModal);
+        elements.closeBtn.addEventListener('click', closeModal);
+        elements.modal.addEventListener('click', (e) => { // Fechar ao clicar fora
+            if (e.target === elements.modal) {
+                closeModal();
             }
         });
-    } else {
-         console.error("Elemento modal do calendário não encontrado.");
+        elements.prevMonthBtn.addEventListener('click', () => changeMonth(-1));
+        elements.nextMonthBtn.addEventListener('click', () => changeMonth(1));
+        elements.calendarGrid.addEventListener('click', handleDayClick);
+
+        console.log("Modal do Calendário inicializado com sucesso.");
     }
 
-    if (prevMonthBtn) {
-        prevMonthBtn.addEventListener('click', navigateCalendarMonths.bind(null, -1));
-    } else {
-         console.error("Botão mês anterior do calendário não encontrado.");
-    }
-     if (nextMonthBtn) {
-        nextMonthBtn.addEventListener('click', navigateCalendarMonths.bind(null, 1));
-     } else {
-          console.error("Botão próximo mês do calendário não encontrado.");
-     }
-
-    // Delegação de evento para cliques nos dias
-    if (calendarGrid) {
-        calendarGrid.addEventListener('click', (e) => {
-            const dayElement = e.target.closest('.calendar-day:not(.other-month)');
-            if (dayElement) {
-                const dateStr = dayElement.dataset.date; // Espera 'YYYY-MM-DD'
-                selectCalendarDay(dateStr, dayElement);
-            }
-        });
-    } else {
-         console.error("Grid do calendário não encontrado.");
+    /**
+     * Busca e armazena referências aos elementos DOM necessários.
+     */
+    function cacheDOMElements() {
+        elements = {
+            openBtn: document.getElementById('open-calendar-modal-btn'),
+            modal: document.getElementById('calendar-modal'),
+            modalContent: document.getElementById('calendar-modal-content'),
+            closeBtn: document.getElementById('calendar-modal-close'),
+            prevMonthBtn: document.getElementById('calendar-prev-month'),
+            nextMonthBtn: document.getElementById('calendar-next-month'),
+            monthYearDisplay: document.getElementById('calendar-month-year'),
+            calendarGrid: document.getElementById('calendar-grid'),
+            loader: document.getElementById('calendar-loader'),
+            eventSidebar: document.getElementById('calendar-event-sidebar'),
+            eventListTitle: document.getElementById('event-list-title'),
+            eventListContainer: document.getElementById('calendar-event-list')
+        };
     }
 
-}
+    // --- Funções de Controle do Modal ---
 
-function openCalendarModal() {
-    const modal = document.getElementById('calendar-modal');
-    const modalContent = document.getElementById('calendar-modal-content');
-    currentCalendarDate = new Date(); // Resetar para o mês atual ao abrir
-    selectedCalendarDay = null; // Limpar seleção
-    updateCalendar(); // Gera o calendário e busca eventos
+    /**
+     * Abre o modal do calendário.
+     */
+    function openModal() {
+        console.log("Abrindo modal...");
+        currentDisplayDate = new Date(); // Reseta para o mês atual
+        selectedDateStr = null; // Limpa seleção
+        updateCalendarView(); // Renderiza o calendário e busca eventos
 
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    // Força reflow para garantir que a transição de opacidade funcione
-    void modal.offsetWidth;
-    modal.classList.remove('opacity-0');
-    modalContent.classList.remove('scale-95', 'opacity-0');
-    modalContent.classList.add('scale-100', 'opacity-100'); // Garante estado final
-}
-
-function closeCalendarModal() {
-    const modal = document.getElementById('calendar-modal');
-    const modalContent = document.getElementById('calendar-modal-content');
-    modal.classList.add('opacity-0');
-    modalContent.classList.add('scale-95', 'opacity-0');
-    modalContent.classList.remove('scale-100', 'opacity-100'); // Remove estado final
-    setTimeout(() => {
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }, 300); // Tempo da transição
-}
-
-function navigateCalendarMonths(direction) {
-    currentCalendarDate.setMonth(currentCalendarDate.getMonth() + direction);
-    selectedCalendarDay = null; // Limpa seleção ao mudar de mês
-    updateCalendar();
-}
-
-function updateCalendar() {
-    renderCalendarGrid();
-    fetchCalendarEvents();
-}
-
-function renderCalendarGrid() {
-    const grid = document.getElementById('calendar-grid');
-    const monthYearDisplay = document.getElementById('calendar-month-year');
-    const loader = document.getElementById('calendar-loader');
-
-    if (!grid || !monthYearDisplay || !loader) {
-        console.error("Elementos essenciais do calendário não encontrados.");
-        if(grid) grid.innerHTML = '<p class="text-red-500 col-span-7">Erro ao renderizar calendário.</p>';
-        return;
-    }
-     loader.style.display = 'block'; // Mostra loader
-     grid.innerHTML = ''; // Limpa grid enquanto carrega
-
-    const year = currentCalendarDate.getFullYear();
-    const month = currentCalendarDate.getMonth(); // 0-11
-
-    monthYearDisplay.textContent = currentCalendarDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-
-    const firstDayOfMonth = new Date(year, month, 1);
-    const lastDayOfMonth = new Date(year, month + 1, 0);
-    const firstDayWeekday = firstDayOfMonth.getDay(); // 0 (Dom) - 6 (Sáb)
-    const totalDays = lastDayOfMonth.getDate();
-
-    grid.innerHTML = ''; // Limpa o grid antes de preencher
-
-    // Dias do mês anterior (para preencher o início)
-    const daysInPrevMonth = new Date(year, month, 0).getDate();
-    for (let i = 0; i < firstDayWeekday; i++) {
-        const day = daysInPrevMonth - firstDayWeekday + 1 + i;
-        grid.innerHTML += `<div class="calendar-day other-month"><span>${day}</span></div>`;
+        elements.modal.classList.remove('hidden');
+        elements.modal.classList.add('flex');
+        // Força reflow para transição
+        void elements.modal.offsetWidth;
+        elements.modal.classList.remove('opacity-0');
+        elements.modalContent.classList.remove('scale-95', 'opacity-0');
+        elements.modalContent.classList.add('scale-100', 'opacity-100');
     }
 
-    // Dias do mês atual
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    /**
+     * Fecha o modal do calendário.
+     */
+    function closeModal() {
+        console.log("Fechando modal...");
+        elements.modal.classList.add('opacity-0');
+        elements.modalContent.classList.add('scale-95', 'opacity-0');
+        elements.modalContent.classList.remove('scale-100', 'opacity-100');
+        setTimeout(() => {
+            elements.modal.classList.add('hidden');
+            elements.modal.classList.remove('flex');
+            // Limpa o conteúdo da sidebar ao fechar para evitar mostrar dados antigos na próxima abertura
+            if (elements.eventListContainer) elements.eventListContainer.innerHTML = '<div class="no-events">Nenhum dia selecionado.</div>';
+            if (elements.eventListTitle) elements.eventListTitle.textContent = 'Selecione um dia';
+        }, 300); // Duração da transição CSS
+    }
 
-    for (let day = 1; day <= totalDays; day++) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    // --- Funções de Navegação e Atualização do Calendário ---
+
+    /**
+     * Muda o mês exibido no calendário.
+     * @param {number} direction -1 para mês anterior, 1 para próximo mês.
+     */
+    function changeMonth(direction) {
+        currentDisplayDate.setMonth(currentDisplayDate.getMonth() + direction);
+        selectedDateStr = null; // Limpa seleção ao mudar de mês
+        updateCalendarView();
+    }
+
+    /**
+     * Atualiza a exibição do calendário (renderiza grid e busca eventos).
+     */
+    function updateCalendarView() {
+        console.log(`Atualizando calendário para: ${currentDisplayDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`);
+        renderCalendarGrid(); // Desenha a estrutura do calendário
+        fetchEventsForMonth(); // Busca os eventos para o mês atual
+    }
+
+    /**
+     * Renderiza a grade de dias do calendário no DOM.
+     */
+    function renderCalendarGrid() {
+        if (!elements.calendarGrid || !elements.monthYearDisplay || !elements.loader) return;
+
+        showLoader(true); // Mostra o loader
+        elements.calendarGrid.innerHTML = ''; // Limpa o grid
+
+        const year = currentDisplayDate.getFullYear();
+        const month = currentDisplayDate.getMonth(); // 0-indexed
+
+        elements.monthYearDisplay.textContent = currentDisplayDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+        const firstDayOfMonth = new Date(year, month, 1);
+        const lastDayOfMonth = new Date(year, month + 1, 0);
+        const firstDayWeekday = firstDayOfMonth.getDay(); // 0 (Dom) a 6 (Sáb)
+        const totalDaysInMonth = lastDayOfMonth.getDate();
+
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Dias do mês anterior
+        const daysInPrevMonth = new Date(year, month, 0).getDate();
+        for (let i = 0; i < firstDayWeekday; i++) {
+            const day = daysInPrevMonth - firstDayWeekday + 1 + i;
+            elements.calendarGrid.appendChild(createDayElement(day, true));
+        }
+
+        // Dias do mês atual
+        for (let day = 1; day <= totalDaysInMonth; day++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            elements.calendarGrid.appendChild(
+                createDayElement(day, false, dateStr, dateStr === todayStr, dateStr === selectedDateStr)
+            );
+        }
+
+        // Dias do próximo mês
+        const totalCellsFilled = firstDayWeekday + totalDaysInMonth;
+        const remainingCells = (7 - (totalCellsFilled % 7)) % 7;
+        for (let i = 1; i <= remainingCells; i++) {
+            elements.calendarGrid.appendChild(createDayElement(i, true));
+        }
+    }
+
+    /**
+     * Cria um elemento div para representar um dia no calendário.
+     * @param {number} day - O número do dia.
+     * @param {boolean} isOtherMonth - Indica se o dia pertence ao mês anterior/seguinte.
+     * @param {string} [dateStr] - A data no formato 'YYYY-MM-DD' (apenas para dias do mês atual).
+     * @param {boolean} [isToday] - Indica se é o dia atual.
+     * @param {boolean} [isSelected] - Indica se é o dia selecionado.
+     * @returns {HTMLDivElement} O elemento div do dia.
+     */
+    function createDayElement(day, isOtherMonth, dateStr = '', isToday = false, isSelected = false) {
         const dayDiv = document.createElement('div');
         dayDiv.className = 'calendar-day';
-        dayDiv.dataset.date = dateStr;
-        if (dateStr === todayStr) {
-            dayDiv.classList.add('today');
-        }
-        if (dateStr === selectedCalendarDay) {
-            dayDiv.classList.add('selected');
-        }
-        dayDiv.innerHTML = `<span>${day}</span><div class="day-event-dots" id="dots-${dateStr}"></div>`; // Adiciona container para os pontos
-        grid.appendChild(dayDiv);
-    }
-
-    // Dias do próximo mês (para completar a última semana)
-    const totalCells = firstDayWeekday + totalDays;
-    const remainingCells = (7 - (totalCells % 7)) % 7;
-    for (let i = 1; i <= remainingCells; i++) {
-        grid.innerHTML += `<div class="calendar-day other-month"><span>${i}</span></div>`;
-    }
-
-}
-
-function fetchCalendarEvents() {
-    const year = currentCalendarDate.getFullYear();
-    const month = currentCalendarDate.getMonth() + 1; // Backend espera 1-12
-    const loader = document.getElementById('calendar-loader');
-    const eventSidebar = document.getElementById('calendar-event-sidebar');
-    const eventList = document.getElementById('calendar-event-list');
-    const eventTitle = document.getElementById('event-list-title');
-
-    loader.style.display = 'block'; // Mostra loader do grid
-    if (eventList) eventList.innerHTML = '<div class="no-events">Carregando eventos...</div>'; // Feedback na sidebar
-    if (eventTitle) eventTitle.textContent = "Carregando...";
-
-    google.script.run
-        .withSuccessHandler(onCalendarEventsReceived)
-        .withFailureHandler(onCalendarEventsFailure)
-        .getCalendarEventsWithCache(year, month);
-}
-
-// CORREÇÃO REFORÇADA: Verifica se 'data' é um objeto e não contém 'error'
-function onCalendarEventsReceived(data) {
-    const loader = document.getElementById('calendar-loader');
-    const eventList = document.getElementById('calendar-event-list');
-    const eventTitle = document.getElementById('event-list-title');
-
-    loader.style.display = 'none'; // Esconde loader do grid
-
-    // --- Verificação Robusta ---
-    // 1. Verifica se 'data' é um objeto e não nulo
-    // 2. Verifica se 'data' NÃO contém a propriedade 'error' (indicando erro explícito do backend)
-    // 3. Verifica se 'data' NÃO é uma string (caso o Apps Script retorne HTML de erro)
-    if (typeof data !== 'object' || data === null || data.error || typeof data === 'string') {
-        let errorMessage = "Erro inesperado ao carregar eventos.";
-        if (data && data.error) {
-            errorMessage = `Erro do servidor: ${data.error}`;
-        } else if (typeof data === 'string') {
-            // Se for string, é provável ser HTML de erro, não exiba diretamente.
-             errorMessage = "O servidor retornou uma resposta inválida.";
-             console.error("Resposta inválida do servidor (provavelmente HTML de erro):", data.substring(0, 500) + "..."); // Loga apenas o início
+        if (isOtherMonth) {
+            dayDiv.classList.add('other-month');
         } else {
-             console.error("Formato inesperado recebido do backend:", data);
+            dayDiv.dataset.date = dateStr; // Adiciona data apenas para dias clicáveis
+            if (isToday) dayDiv.classList.add('today');
+            if (isSelected) dayDiv.classList.add('selected');
+            // Adiciona container para os pontos de evento
+            dayDiv.innerHTML = `<span>${day}</span><div class="day-event-dots" id="dots-${dateStr}"></div>`;
         }
-
-        if (eventList) eventList.innerHTML = `<div class="no-events text-red-500">${errorMessage}</div>`;
-        if (eventTitle) eventTitle.textContent = "Erro";
-        calendarEventsData = {}; // Limpa dados antigos
-        return; // Interrompe a execução
+        if (!dayDiv.innerHTML) { // Adiciona o número do dia se não houver pontos
+             dayDiv.innerHTML = `<span>${day}</span>`;
+        }
+        return dayDiv;
     }
-    // --- Fim da Verificação ---
 
-
-    calendarEventsData = data;
-    // Adiciona os pontos aos dias
-    Object.keys(calendarEventsData).forEach(dateStr => {
-        const dotsContainer = document.getElementById(`dots-${dateStr}`);
-        if (dotsContainer) {
-            dotsContainer.innerHTML = ''; // Limpa pontos antigos
-            const events = calendarEventsData[dateStr] || [];
-            const hasAcao = events.some(e => e.type === 'acao');
-            const hasCalendario = events.some(e => e.type === 'calendario');
-            if (hasAcao) {
-                dotsContainer.innerHTML += '<div class="event-dot event-dot-acao"></div>';
-            }
-            if (hasCalendario) {
-                 dotsContainer.innerHTML += '<div class="event-dot event-dot-calendario"></div>';
-            }
+    /**
+     * Lida com o clique em um dia do calendário.
+     * @param {Event} event - O objeto do evento de clique.
+     */
+    function handleDayClick(event) {
+        const dayElement = event.target.closest('.calendar-day:not(.other-month)');
+        if (dayElement && dayElement.dataset.date) {
+            const dateStr = dayElement.dataset.date;
+            console.log(`Dia clicado: ${dateStr}`);
+            selectDay(dateStr, dayElement);
         }
-    });
+    }
 
-    // Se um dia estava selecionado, atualiza a sidebar, senão mostra a mensagem padrão
-     if (selectedCalendarDay && calendarEventsData[selectedCalendarDay]) {
-        renderEventList(selectedCalendarDay);
-     } else {
-         selectedCalendarDay = null; // Garante que a seleção foi limpa se não há eventos
-         renderEventList(null); // Mostra a mensagem padrão
-          // Remove a classe 'selected' de qualquer dia que possa ter ficado marcado
-         document.querySelectorAll('.calendar-day.selected').forEach(el => el.classList.remove('selected'));
-     }
-}
+    /**
+     * Seleciona um dia, atualiza a interface e a lista de eventos.
+     * @param {string} dateStr - A data selecionada ('YYYY-MM-DD').
+     * @param {HTMLElement} dayElement - O elemento do dia que foi clicado.
+     */
+    function selectDay(dateStr, dayElement) {
+        // Remove seleção anterior visualmente
+        const previouslySelected = elements.calendarGrid.querySelector('.calendar-day.selected');
+        if (previouslySelected) {
+            previouslySelected.classList.remove('selected');
+        }
 
-// CORREÇÃO: Garante que o erro seja exibido de forma segura
-function onCalendarEventsFailure(error) {
-     const loader = document.getElementById('calendar-loader');
-     const eventList = document.getElementById('calendar-event-list');
-     const eventTitle = document.getElementById('event-list-title');
-
-     loader.style.display = 'none'; // Esconde loader do grid
-     console.error("Falha ao buscar eventos do calendário:", error);
-     // Exibe uma mensagem genérica e segura, independentemente do conteúdo do erro
-     const errorMessage = `Falha ao carregar eventos. (${error.message || 'Erro desconhecido'}). Tente novamente.`;
-     if (eventList) eventList.innerHTML = `<div class="no-events text-red-500">${errorMessage}</div>`;
-     if (eventTitle) eventTitle.textContent = "Erro";
-     calendarEventsData = {}; // Limpa dados
-}
-
-function selectCalendarDay(dateStr, dayElement) {
-    // Remove a seleção anterior
-    document.querySelectorAll('.calendar-day.selected').forEach(el => el.classList.remove('selected'));
-
-    // Adiciona seleção ao novo dia
-    if (dayElement) {
+        // Adiciona seleção visual ao novo dia
         dayElement.classList.add('selected');
-        selectedCalendarDay = dateStr;
+        selectedDateStr = dateStr;
+
+        // Renderiza a lista de eventos para o dia selecionado
         renderEventList(dateStr);
-    } else {
-        selectedCalendarDay = null;
-         renderEventList(null); // Caso o elemento não seja encontrado
-    }
-}
-
-function renderEventList(dateStr) {
-    const eventListContainer = document.getElementById('calendar-event-list');
-    const eventListTitle = document.getElementById('event-list-title');
-
-    if (!eventListContainer || !eventListTitle) return;
-
-    eventListContainer.innerHTML = ''; // Limpa a lista
-
-    if (!dateStr) {
-        eventListTitle.textContent = 'Selecione um dia';
-        eventListContainer.innerHTML = '<div class="no-events">Nenhum dia selecionado.</div>';
-        return;
     }
 
-    const date = new Date(dateStr + 'T00:00:00'); // Adiciona T00:00:00 para evitar problemas de fuso
-    eventListTitle.textContent = `Eventos de ${date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}`;
+    // --- Funções de Busca e Exibição de Eventos ---
 
-    const events = calendarEventsData[dateStr] || [];
+    /**
+     * Busca os eventos para o mês atualmente exibido no calendário.
+     */
+    function fetchEventsForMonth() {
+        const year = currentDisplayDate.getFullYear();
+        const month = currentDisplayDate.getMonth() + 1; // Backend usa 1-12
+        const cacheKey = `${year}-${String(month).padStart(2, '0')}`;
 
-    if (events.length === 0) {
-        eventListContainer.innerHTML = '<div class="no-events">Nenhum evento para este dia.</div>';
-        return;
+        // Verifica se os dados já estão no cache
+        if (eventsDataCache[cacheKey]) {
+            console.log(`Eventos carregados do cache para ${cacheKey}`);
+            processFetchedEvents(eventsDataCache[cacheKey]);
+            showLoader(false); // Esconde o loader após renderizar a grade e processar cache
+            return;
+        }
+
+        console.log(`Buscando eventos do servidor para ${cacheKey}...`);
+        showLoader(true); // Garante que o loader está visível
+        if (elements.eventListContainer) elements.eventListContainer.innerHTML = '<div class="no-events">Carregando eventos...</div>';
+        if (elements.eventListTitle) elements.eventListTitle.textContent = "Carregando...";
+
+        google.script.run
+            .withSuccessHandler(data => {
+                console.log(`Eventos recebidos para ${cacheKey}`);
+                if (typeof data === 'object' && data !== null && !data.error) {
+                    eventsDataCache[cacheKey] = data; // Armazena no cache
+                    processFetchedEvents(data);
+                } else {
+                    handleFetchError(data?.error || "Resposta inválida do servidor.");
+                }
+                showLoader(false); // Esconde o loader após processar
+            })
+            .withFailureHandler(error => {
+                console.error(`Falha ao buscar eventos para ${cacheKey}:`, error);
+                handleFetchError(error.message || "Erro desconhecido.");
+                showLoader(false); // Esconde o loader em caso de falha
+            })
+            .getCalendarEventsWithCache(year, month);
     }
 
-    events.forEach(event => {
+    /**
+     * Processa os dados de eventos recebidos do servidor e adiciona os pontos visuais.
+     * @param {object} events - Objeto com eventos agrupados por data ('YYYY-MM-DD').
+     */
+    function processFetchedEvents(events) {
+        // Limpa pontos antigos (caso haja re-renderização sem recarregar dados)
+        elements.calendarGrid.querySelectorAll('.day-event-dots').forEach(dotsContainer => {
+            dotsContainer.innerHTML = '';
+        });
+
+        // Adiciona novos pontos
+        Object.keys(events).forEach(dateStr => {
+            const dotsContainer = elements.calendarGrid.querySelector(`#dots-${dateStr}`);
+            if (dotsContainer) {
+                const dayEvents = events[dateStr] || [];
+                const hasAcao = dayEvents.some(e => e.type === 'acao');
+                const hasCalendario = dayEvents.some(e => e.type === 'calendario');
+
+                if (hasAcao) {
+                    dotsContainer.innerHTML += '<div class="event-dot event-dot-acao"></div>';
+                }
+                if (hasCalendario) {
+                    dotsContainer.innerHTML += '<div class="event-dot event-dot-calendario"></div>';
+                }
+            }
+        });
+
+        // Atualiza a sidebar se um dia estiver selecionado
+        if (selectedDateStr) {
+            renderEventList(selectedDateStr);
+        } else {
+            renderEventList(null); // Mostra estado inicial da sidebar
+        }
+    }
+
+    /**
+     * Renderiza a lista de eventos na sidebar para a data fornecida.
+     * @param {string | null} dateStr - A data no formato 'YYYY-MM-DD' ou null.
+     */
+    function renderEventList(dateStr) {
+        if (!elements.eventListContainer || !elements.eventListTitle) return;
+
+        elements.eventListContainer.innerHTML = ''; // Limpa antes de popular
+
+        if (!dateStr) {
+            elements.eventListTitle.textContent = 'Selecione um dia';
+            elements.eventListContainer.innerHTML = '<div class="no-events">Nenhum dia selecionado.</div>';
+            return;
+        }
+
+        try {
+            const displayDate = new Date(dateStr + 'T00:00:00'); // Garante que a data seja interpretada localmente
+            elements.eventListTitle.textContent = `Eventos de ${displayDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}`;
+        } catch (e) {
+            console.error("Erro ao formatar data para título da lista:", e);
+            elements.eventListTitle.textContent = "Eventos";
+        }
+
+        const monthCacheKey = dateStr.substring(0, 7); // 'YYYY-MM'
+        const eventsForDay = (eventsDataCache[monthCacheKey] && eventsDataCache[monthCacheKey][dateStr]) ? eventsDataCache[monthCacheKey][dateStr] : [];
+
+        if (eventsForDay.length === 0) {
+            elements.eventListContainer.innerHTML = '<div class="no-events">Nenhum evento para este dia.</div>';
+            return;
+        }
+
+        eventsForDay.forEach(event => {
+            elements.eventListContainer.appendChild(createEventItemElement(event));
+        });
+    }
+
+    /**
+     * Cria o elemento HTML para um item de evento na lista.
+     * @param {object} event - O objeto do evento.
+     * @returns {HTMLDivElement} O elemento div do item de evento.
+     */
+    function createEventItemElement(event) {
         const itemDiv = document.createElement('div');
         itemDiv.className = `event-item ${event.type === 'acao' ? 'event-item-acao' : 'event-item-calendario'}`;
 
@@ -306,56 +352,111 @@ function renderEventList(dateStr) {
             timeHtml = `<span class="event-time">${event.startTime}</span>`;
         }
 
-        let summaryHtml = event.summary ? `<p class="event-summary">${event.summary}</p>` : '';
-
-        let linksHtml = '';
-        if (event.links) {
-            const linkList = event.links.split(',').map(link => link.trim()).filter(link => link);
-            if(linkList.length > 0) {
-                 linksHtml = '<div class="event-links mt-1">';
-                 linkList.forEach(link => {
-                     // Tenta criar um nome mais amigável, senão usa a URL
-                     let linkName = 'Link';
-                     try {
-                         // Verifica se é uma URL válida antes de tentar parsear
-                         if (link.startsWith('http://') || link.startsWith('https://')) {
-                             const url = new URL(link);
-                             linkName = url.hostname.replace('www.', ''); // Ex: docs.google.com
-                         } else {
-                             // Se não for URL http/https, exibe o texto como está, mas sem linkar
-                             linkName = link;
-                             linksHtml += `<span class="non-url-link">${linkName}</span>`; // Estilize .non-url-link se necessário
-                             return; // Pula para o próximo link
-                         }
-                     } catch (e) {
-                         console.warn("Não foi possível parsear link:", link, e);
-                         linkName = "Link"; // Fallback
-                     }
-                      // Adiciona noreferrer por segurança para links válidos
-                     linksHtml += `<a href="${link}" target="_blank" rel="noopener noreferrer">${linkName}</a>`;
-                 });
-                 linksHtml += '</div>';
-            }
-        }
-
+        const summaryHtml = event.summary ? `<p class="event-summary">${escapeHtml(event.summary)}</p>` : '';
+        const linksHtml = createLinksHtml(event.links);
 
         itemDiv.innerHTML = `
             ${timeHtml}
-            <strong class="event-title">${event.title}</strong>
+            <strong class="event-title">${escapeHtml(event.title)}</strong>
             ${summaryHtml}
             ${linksHtml}
         `;
-        eventListContainer.appendChild(itemDiv);
-    });
-}
-
-// ADICIONADO: Garante que a inicialização ocorra após o DOM carregar
-document.addEventListener('DOMContentLoaded', () => {
-    try {
-        initializeCalendarModal();
-    } catch (error) {
-        console.error("Erro ao inicializar o modal do calendário:", error);
+        return itemDiv;
     }
-});
+
+    /**
+     * Cria o HTML para os links de um evento, tratando diferentes formatos.
+     * @param {string | null} linksString - A string contendo links, separados por vírgula.
+     * @returns {string} O HTML formatado dos links.
+     */
+    function createLinksHtml(linksString) {
+        if (!linksString) return '';
+
+        const links = linksString.split(',')
+            .map(link => link.trim())
+            .filter(link => link); // Remove links vazios
+
+        if (links.length === 0) return '';
+
+        let html = '<div class="event-links mt-1">';
+        links.forEach(link => {
+            let linkName = 'Link';
+            let isExternalUrl = link.startsWith('http://') || link.startsWith('https://');
+
+            if (isExternalUrl) {
+                try {
+                    const url = new URL(link);
+                    linkName = url.hostname.replace('www.', ''); // Nome mais amigável
+                } catch (e) {
+                    console.warn("URL inválida encontrada:", link);
+                    linkName = "Link inválido";
+                    isExternalUrl = false; // Trata como texto se não for URL válida
+                }
+            } else {
+                linkName = link; // Usa o texto como está se não for URL
+            }
+
+            if (isExternalUrl) {
+                html += `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(linkName)}</a>`;
+            } else {
+                // Exibe como texto simples, não clicável
+                html += `<span class="non-url-link text-xs text-slate-500">${escapeHtml(linkName)}</span>`;
+            }
+        });
+        html += '</div>';
+        return html;
+    }
+
+
+    // --- Funções Auxiliares ---
+
+    /**
+     * Mostra ou esconde o indicador de carregamento.
+     * @param {boolean} show - True para mostrar, false para esconder.
+     */
+    function showLoader(show) {
+        if (elements.loader) {
+            elements.loader.style.display = show ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Lida com erros ao buscar eventos do servidor.
+     * @param {string} errorMessage - A mensagem de erro.
+     */
+    function handleFetchError(errorMessage) {
+         if (elements.eventListContainer) {
+            elements.eventListContainer.innerHTML = `<div class="no-events text-red-500">Falha ao carregar eventos: ${escapeHtml(errorMessage)}</div>`;
+         }
+         if (elements.eventListTitle) {
+            elements.eventListTitle.textContent = "Erro";
+         }
+         // Poderia limpar os pontos do calendário aqui se desejado
+         // elements.calendarGrid.querySelectorAll('.day-event-dots').forEach(el => el.innerHTML = '');
+    }
+
+     /**
+     * Escapa caracteres HTML para exibição segura.
+     * @param {string} str - A string a ser escapada.
+     * @returns {string} A string escapada.
+     */
+     function escapeHtml(str) {
+        if (typeof str !== 'string') return '';
+        return str
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+     }
+
+    // --- Inicialização ---
+    // A inicialização agora é chamada pelo Index.html
+    // Certifique-se de que a função initializeCalendarModal esteja acessível globalmente
+    // ou que o Index.html a chame corretamente após o DOM carregar.
+    window.initializeCalendarModal = initializeCalendarModal;
+
+})(); // Fim da IIFE (Immediately Invoked Function Expression) para encapsular o escopo
+
 </script>
 
