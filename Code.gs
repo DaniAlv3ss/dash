@@ -20,7 +20,7 @@ const NOME_ABA_OS = "NPS Datas";
 const NOME_ABA_MANAGER = "Pedidos Manager";
 const NOME_ABA_DEVOLUCAO = "Base Devolução";
 const NOME_ABA_DEFEITOS = "Dim_Defeitos";
-const NOME_ABA_AUDITORIA = "Respostas ao formulário 3";
+const NOME_ABA_AUDITORIA = "Base de dados";
 
 // Índices de colunas (mantidos aqui para referência global, se necessário)
 const INDICES_NPS = {
