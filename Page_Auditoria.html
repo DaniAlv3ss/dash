@@ -1,37 +1,93 @@
-<!-- Container principal da página -->
-<div id="analise-regional-content">
+<div id="auditoria-loader" class="text-center py-20">
+    <p class="text-lg font-semibold text-orange-500">Carregando dados de auditoria...</p>
+</div>
 
-    <!-- Card do Mapa -->
-    <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm">
-        <h3 class="text-lg font-semibold text-slate-800 mb-4 text-center">Mapa de Análise por Estado</h3>
-        
-        <!-- Seletor de estados para telas pequenas (mobile) -->
-        <div class="parca lg:hidden mb-4">
-             <select name="select" id="seletory" class="w-full border border-slate-300 rounded-md p-2 text-sm bg-slate-50">
-                <!-- As opções de estado serão populadas via JavaScript -->
-            </select>
-        </div>
-        
-        <!-- Container do mapa SVG -->
-        <div class="box-mapa">
-            <!-- O SVG do mapa será inserido aqui pelo JavaScript -->
-        </div>
-    </div>
-
-    <!-- Estrutura do Modal (inicialmente oculto) -->
-    <div id="state-modal" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden items-center justify-center p-4 transition-opacity duration-300 opacity-0">
-        <div id="state-modal-content" class="bg-white rounded-xl shadow-2xl w-full max-w-lg transform scale-95 transition-all duration-300">
-            <!-- Cabeçalho do Modal -->
-            <div class="flex justify-between items-center p-4 border-b">
-                <h2 id="state-modal-title" class="text-xl font-semibold text-slate-800"></h2>
-                <button id="state-modal-close" class="text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
-            </div>
-            <!-- Corpo do Modal -->
-            <div id="state-modal-body" class="p-6">
-                <!-- Conteúdo do estado será injetado aqui -->
+<div id="auditoria-content" style="visibility: hidden;" class="flex flex-col gap-6">
+    <div class="flex justify-end mb-6 relative">
+        <div class="date-dropdown">
+            <button id="auditoria-date-range-toggle" class="bg-white text-slate-700 border border-slate-300 px-4 py-2 rounded-md flex items-center gap-2">
+                <span id="auditoria-date-range-display">Carregando...</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+            </button>
+            <div id="auditoria-date-range-popup" class="date-popup">
+                <div class="date-inputs">
+                    <div><label for="auditoria-startDate">Data Início</label><input type="date" id="auditoria-startDate"></div>
+                    <div><label for="auditoria-endDate">Data Fim</label><input type="date" id="auditoria-endDate"></div>
+                </div>
+                <div class="popup-actions">
+                    <button id="auditoria-cancelButton" class="cancel-button">Cancelar</button>
+                    <button id="auditoria-applyButton" class="apply-button">Aplicar</button>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- KPIs: Grid ajustado para 3 colunas em telas grandes -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Total de Auditorias</h4>
+            <p id="kpi-total-auditorias" class="text-4xl font-bold text-slate-800 mt-2">0</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Taxa de Conformidade</h4>
+            <p id="kpi-taxa-conformidade" class="text-4xl font-bold text-green-600 mt-2">0%</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h4 class="text-slate-500 font-semibold">Total de Auditorias c/ NC</h4>
+            <p id="kpi-total-nc" class="text-4xl font-bold text-red-600 mt-2">0</p>
+        </div>
+        <!-- Cards de NC Hardware e Software Removidos -->
+    </section>
+
+    <!-- Seção dos gráficos de NC Hardware e Software Removida -->
+    <!--
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Não Conformidades de Hardware</h3>
+            <div id="nc-hardware-chart" style="width: 100%; height: 300px;"></div>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">Top 5 Não Conformidades de Software</h3>
+            <div id="nc-software-chart" style="width: 100%; height: 300px;"></div>
+        </div>
+    </section>
+    -->
+    
+    <section class="bg-white p-6 rounded-xl shadow-sm">
+        <h3 class="text-lg font-semibold text-slate-800 mb-4">Performance dos Auditores</h3>
+        <div id="performance-auditores-container" class="space-y-4"></div>
+    </section>
+
+    <section class="bg-white p-6 rounded-xl shadow-sm">
+        <h3 class="text-lg font-semibold text-slate-800 mb-4">Registros de Auditoria</h3>
+        <div class="flex justify-end mb-4">
+             <input type="text" id="auditoria-search-input" placeholder="Filtrar por OS, Técnico ou Auditor..." class="border border-slate-300 rounded-md px-3 py-1.5 text-sm w-full md:w-72">
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-600 uppercase">
+                    <tr>
+                        <th class="p-3">Data</th>
+                        <th class="p-3">OS</th>
+                        <th class="p-3">Auditor</th>
+                        <th class="p-3">Téc. Montagem</th>
+                        <th class="p-3">Téc. Qualidade</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Itens c/ NC</th>
+                        <th class="p-3">Descrição NC</th>
+                    </tr>
+                </thead>
+                <tbody id="auditoria-table-body" class="text-slate-700">
+                </tbody>
+            </table>
+        </div>
+         <div class="pagination-controls flex justify-end items-center mt-4 text-sm">
+            <span id="auditoria-page-info"></span>
+            <div class="ml-4">
+                <button id="auditoria-prev-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50">&lt;</button>
+                <button id="auditoria-next-page" class="px-3 py-1 border border-slate-300 rounded-md hover:bg-slate-100 disabled:opacity-50 ml-2">&gt;</button>
+            </div>
+        </div>
+    </section>
 </div>
 
