@@ -506,4 +506,3 @@ function getDefectsDataWithCache(dateRange) {
   const cacheKey = `defects_data_v4_rootcause_${dateRange.start}_${dateRange.end}`;
   return getOrSetCache(cacheKey, getDefectsData, [dateRange]);
 }
-
