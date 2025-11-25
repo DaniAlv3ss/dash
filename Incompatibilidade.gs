@@ -345,4 +345,3 @@ function getIncompatibilidadeDataForTechnicianWithCache(dateRange, tecnicoNome) 
   const cacheKey = `incompat_tecnico_v15_montagem_G_${dateRange.start}_${dateRange.end}_${tecnicoNome.replace(/\s+/g, '_')}`;
   return getOrSetCache(cacheKey, getIncompatibilidadeDataForTechnician, [dateRange, tecnicoNome]);
 }
-
