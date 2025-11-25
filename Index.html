@@ -58,16 +58,20 @@
             grid-row: 1;
         }
 
-        /* --- ESTILOS DO MODAL CALENDÁRIO --- */
+        /* --- ESTILOS DO MODAL CALENDÁRIO ATUALIZADOS --- */
         #calendar-modal { transition: opacity 0.3s ease-in-out; }
         #calendar-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
         #calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background-color: #e2e8f0; border: 1px solid #e2e8f0; }
         .calendar-header { background-color: #f8fafc; padding: 0.5rem; text-align: center; font-weight: 600; font-size: 0.8rem; color: #475569; }
-        .calendar-day { background-color: #f1f5f9; min-height: 80px; padding: 0.3rem; font-size: 0.75rem; color: #64748b; position: relative; cursor: pointer; transition: background-color 0.2s; }
+        /* Fundo dos dias normais agora é branco */
+        .calendar-day { background-color: #ffffff; min-height: 80px; padding: 0.3rem; font-size: 0.75rem; color: #64748b; position: relative; cursor: pointer; transition: background-color 0.2s; }
+        /* Fundo dos dias de outros meses (cinza bem claro) */
         .calendar-day.other-month { background-color: #f8fafc; color: #cbd5e1; cursor: default; }
-        .calendar-day.today { font-weight: bold; color: #1e293b; background-color: #e0f2fe; }
-        .calendar-day.selected { background-color: #fb923c !important; color: white !important; }
-        .calendar-day:not(.other-month):hover { background-color: #fed7aa; }
+        /* Dia atual destacado com laranja mais forte */
+        .calendar-day.today { font-weight: bold; background-color: #fb923c; color: white; } /* orange-400 */
+        /* Dia selecionado destacado com laranja mais forte ainda */
+        .calendar-day.selected { background-color: #f97316 !important; color: white !important; } /* orange-500 */
+        .calendar-day:not(.other-month):not(.selected):not(.today):hover { background-color: #fed7aa; } /* orange-200 no hover */
         .calendar-day span { display: block; text-align: right; }
         .day-event-dots { display: flex; gap: 2px; position: absolute; bottom: 4px; left: 4px; }
         .event-dot { width: 6px; height: 6px; border-radius: 50%; }
@@ -121,7 +125,7 @@
                 <span>Auditoria</span>
             </a>
         </nav>
-        <!-- Botão Calendário no Rodapé -->
+        <!-- Botão Calendário RE-ADICIONADO -->
         <div class="mt-auto p-2 border-t border-slate-700">
             <button id="open-calendar-modal-btn" class="w-full flex items-center justify-center py-3 px-4 text-slate-300 bg-slate-700 hover:bg-slate-600 hover:text-white rounded-md transition-colors duration-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -147,7 +151,7 @@
         </main>
     </div>
 
-    <!-- Estrutura do Modal Calendário -->
+    <!-- Estrutura do Modal Calendário RE-ADICIONADA -->
     <div id="calendar-modal" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden items-center justify-center p-4 opacity-0">
         <div id="calendar-modal-content" class="bg-slate-100 rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col transform scale-95 opacity-0">
             <!-- Cabeçalho do Modal -->
@@ -233,7 +237,12 @@
                 // Carrega a página inicial
                 loadPage('Dashboard', document.querySelector('.nav-link'));
 
-                // REMOVIDO: A inicialização do calendário agora é feita pelo próprio script do calendário
+                // **RE-ADICIONADO:** Inicializa a lógica do calendário globalmente após o DOM carregar
+                if (typeof initializeCalendarModal === 'function') {
+                    initializeCalendarModal();
+                } else {
+                    console.error("Função initializeCalendarModal não encontrada. Verifique se JavaScript_Calendario.html está incluído corretamente.");
+                }
 
             } catch (error) {
                 displayError('Erro Crítico na Inicialização', error);
@@ -365,7 +374,7 @@
     <?!= include('JavaScript_Devolucao'); ?>
     <?!= include('JavaScript_Incompatibilidade'); ?>
     <?!= include('JavaScript_Auditoria'); ?>
-    <?!= include('JavaScript_Calendario'); ?>
+    <?!= include('JavaScript_Calendario'); ?> <!-- RE-ADICIONADO -->
 
 </body>
 </html>
