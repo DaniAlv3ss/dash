@@ -396,3 +396,4 @@ function getPedidosPorMotivoWithCache(dateRange, motivo, specificDate) {
   const cacheKey = `pedidos_por_motivo_v4_${dateRange.start}_${dateRange.end}_${motivo.replace(/\s+/g, '_')}_${specificDateKey}`;
   return getOrSetCache(cacheKey, getPedidosPorMotivo, [dateRange, motivo, specificDate]);
 }
+
