@@ -194,4 +194,3 @@ function getAuditoriaDataWithCache(dateRange) {
   // return getAuditoriaData(dateRange); // Descomente para desativar cache para testes
   return getOrSetCache(cacheKey, getAuditoriaData, [dateRange]);
 }
-
