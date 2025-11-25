@@ -246,4 +246,3 @@ function getCalendarEventsWithCache(year, month) {
   // return getCalendarEvents(year, month); // Descomente para testar SEMPRE buscando dados frescos
   return getOrSetCache(cacheKey, getCalendarEvents, [year, month]);
 }
-
